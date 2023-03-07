@@ -38,10 +38,11 @@ jobs:
             os_short: windows
             compiler_cc: msvc++14.16-vs2017-cl
           #OSX Xcode_14.2.app is failing over deprecated sprint and wanting snprintf.
-          - os: macos-11
-            os_short: mac
-            compiler_cc: clang
-            compiler_cxx: clang
+          #OSX 10.1 compiles locally. Provider is firm on not installing it. Thanks sergei-pyshnoi.
+          #- os: macos-11
+          #  os_short: mac
+          #  compiler_cc: clang
+          #  compiler_cxx: clang
       fail-fast: false
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os_short }}-${{ matrix.os }}-${{ matrix.compiler_cc }}
