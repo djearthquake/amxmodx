@@ -136,12 +136,14 @@ cvar_t init_amxmodx_mldebug = {"amx_mldebug", "", FCVAR_SPONLY};
 cvar_t init_amxmodx_language = {"amx_language", "en", FCVAR_SERVER};
 cvar_t init_amxmodx_cl_langs = {"amx_client_languages", "1", FCVAR_SERVER};
 cvar_t init_amxmodx_perflog = { "amx_perflog_ms", "1.0", FCVAR_SPONLY };
+//cvar_t init_amxmodx_lambda = { "amx_lambda", "6.1", FCVAR_SPONLY };
 
 cvar_t* amxmodx_version = NULL;
 cvar_t* amxmodx_modules = NULL;
 cvar_t* amxmodx_debug = NULL;
 cvar_t* amxmodx_language = NULL;
 cvar_t* amxmodx_perflog = NULL;
+//cvar_t* amxmodx_lambda = NULL;
 
 cvar_t* hostname = NULL;
 cvar_t* mp_timelimit = NULL;
@@ -473,7 +475,7 @@ int	C_Spawn(edict_t *pent)
 	// Set some info about amx version and modules
 	CVAR_SET_STRING(init_amxmodx_version.name, AMXX_VERSION);
 	char buffer[32];
-	sprintf(buffer, "%d", loaded);
+	snprintf(buffer,sizeof(buffer),"%d", loaded);
 	CVAR_SET_STRING(init_amxmodx_modules.name, buffer);
 
 	// ###### Load Vault
@@ -673,8 +675,9 @@ void C_ServerActivate_Post(edict_t *pEdictList, int edictCount, int clientMax)
 	executeForwards(FF_PluginCfg);
 
 	CoreCfg.ExecuteAutoConfigs();   // Execute configs created with AutoExecConfig native.
+	//CoreCfg.SetMapConfigTimer(amxmodx_lambda)
 	CoreCfg.SetMapConfigTimer(6.1); // Prepare per-map configs to be executed 6.1 seconds later.
-	                                // Original value which was used in admin.sma.
+	// Original value which was used in admin.sma.
 
 	// Correct time in Counter-Strike and other mods (except DOD)
 	if (!g_bmod_dod)
@@ -830,7 +833,7 @@ void C_ServerDeactivate_Post()
 			while (true)
 			{
 				char buffer[256];
-				sprintf(buffer, "%s/memreports/D%02d%02d%03d", get_localinfo("amxx_basedir", "addons/amxmodx"), curTime->tm_mon + 1, curTime->tm_mday, i);
+				snprintf(buffer, sizeof(buffer), "%s/memreports/D%02d%02d%03d", get_localinfo("amxx_basedir", "addons/amxmodx"), curTime->tm_mon + 1, curTime->tm_mday, i);
 #if defined(__linux__) || defined(__APPLE__)
 				mkdir(build_pathname("%s", g_log_dir.chars()), 0700);
 				if (mkdir(build_pathname(buffer), 0700) < 0)
@@ -1070,25 +1073,20 @@ void C_ClientCommand(edict_t *pEntity)
 		if (cmd && stricmp(cmd, "amxx") == 0)
 		{
 			// Print version
-			static char buf[1024];
-			size_t len = 0;
-
-			sprintf(buf, "%s %s\n", Plugin_info.name, Plugin_info.version);
+			static char buf[1280];
+			snprintf(buf, sizeof(buf), "%s %s\n", Plugin_info.name, Plugin_info.version);
 			CLIENT_PRINT(pEntity, print_console, buf);
-			len = sprintf(buf, "Authors: \n         David \"BAILOPAN\" Anderson, Pavol \"PM OnoTo\" Marko, Felix \"SniperBeamer\" Geyer\n");
-			len += sprintf(&buf[len], "         Jonny \"Got His Gun\" Bergstrom, Lukasz \"SidLuke\" Wlasinski\n");
+			snprintf(buf, sizeof(buf), "Authors: \n         David \"BAILOPAN\" Anderson, SPiNX \"DJ\" EarthQuake, Pavol \"PM OnoTo\" Marko, Felix \"SniperBeamer\" Geyer\n         Jonny \"Got His Gun\" Bergstrom, Lukasz \"SidLuke\" Wlasinski\n");
 			CLIENT_PRINT(pEntity, print_console, buf);
-			len = sprintf(buf, "         Christian \"Basic-Master\" Hammacher, Borja \"faluco\" Ferrer\n");
-			len += sprintf(&buf[len], "         Scott \"DS\" Ehlert\n");
-			len += sprintf(&buf[len], "Compiled: %s\nURL:http://www.amxmodx.org/\n", __DATE__ ", " __TIME__);
+			snprintf(buf, sizeof(buf), "         Christian \"Basic-Master\" Hammacher, Borja \"faluco\" Ferrer, Scott \"DS\" Ehlert\nCompiled: %s\nURL:http://www.amxmodx.org/\n", __DATE__ ", " __TIME__);
 			CLIENT_PRINT(pEntity, print_console, buf);
 #ifdef JIT
-			sprintf(buf, "Core mode: JIT\n");
+			snprintf(buf, sizeof(buf), "Core mode: JIT\n");
 #else
 #ifdef ASM32
-			sprintf(buf, "Core mode: ASM\n");
+			snprintf(buf, sizeof(buf), "Core mode: ASM\n");
 #else
-			sprintf(buf, "Core mode: Normal\n");
+			snprintf(buf, sizeof(buf), "Core mode: Normal\n");
 #endif
 #endif
 			CLIENT_PRINT(pEntity, print_console, buf);
@@ -1277,7 +1275,7 @@ void C_StartFrame_Post(void)
 			while (true)
 			{
 				char buffer[256];
-				sprintf(buffer, "%s/memreports/D%02d%02d%03d", get_localinfo("amxx_basedir", "addons/amxmodx"), curTime->tm_mon + 1, curTime->tm_mday, i);
+				snprintf(buffer, sizeof(buffer), "%s/memreports/D%02d%02d%03d", get_localinfo("amxx_basedir", "addons/amxmodx"), curTime->tm_mon + 1, curTime->tm_mday, i);
 #if defined(__linux__) || defined(__APPLE__)
 				mkdir(build_pathname("%s", g_log_dir.chars()), 0700);
 				if (mkdir(build_pathname(buffer), 0700) < 0)
@@ -1633,11 +1631,13 @@ C_DLLEXPORT	int	Meta_Attach(PLUG_LOADTIME now, META_FUNCTIONS *pFunctionTable, m
 	CVAR_REGISTER(&init_amxmodx_language);
 	CVAR_REGISTER(&init_amxmodx_cl_langs);
 	CVAR_REGISTER(&init_amxmodx_perflog);
+	//CVAR_REGISTER(&init_amxmodx_lambda);
 
 	amxmodx_version = CVAR_GET_POINTER(init_amxmodx_version.name);
 	amxmodx_debug = CVAR_GET_POINTER(init_amxmodx_debug.name);
 	amxmodx_language = CVAR_GET_POINTER(init_amxmodx_language.name);
 	amxmodx_perflog = CVAR_GET_POINTER(init_amxmodx_perflog.name);
+	//amxmodx_lambda = CVAR_GET_POINTER(init_amxmodx_lambda.name);
 
 	REG_SVR_COMMAND("amxx", amx_command);
 

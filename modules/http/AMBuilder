@@ -1,0 +1,25 @@
+# vim: set sts=2 ts=8 sw=2 tw=99 et ft=python:
+import subprocess
+
+# This module is intentionally built only for the Linux 32-bit server target.
+if builder.target_platform == 'linux':
+  try:
+    curl_cflags = subprocess.check_output(
+      ['pkg-config', '--cflags', 'libcurl']
+    ).decode().split()
+    curl_libs = subprocess.check_output(
+      ['pkg-config', '--libs', 'libcurl']
+    ).decode().split()
+  except (OSError, subprocess.CalledProcessError):
+    print('Skipping HTTP module: libcurl development files and pkg-config are required.')
+  else:
+    binary = AMXX.MetaModule(builder, 'http')
+    binary.compiler.cflags += curl_cflags
+    binary.compiler.cxxflags += curl_cflags
+    binary.compiler.linkflags += curl_libs
+    binary.compiler.postlink += ['-pthread']
+    binary.sources += [
+      '../../public/sdk/amxxmodule.cpp',
+      'http.cpp',
+    ]
+    AMXX.modules += [builder.Add(binary)]

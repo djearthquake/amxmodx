@@ -304,7 +304,22 @@ OP_LODB_I:
         mov     ebp,[esi+4]
         mov     eax,[edi+eax]           ;subject to misalignment stalls
         add     esi,8
-        and     eax,DWORD [(lodb_and-4)+ebp*4]
+        cmp     ebp,1
+        je      .byte
+        cmp     ebp,2
+        je      .word
+        cmp     ebp,4
+        je      .dword
+        xor     eax,eax
+        jmp     .done
+    .byte:
+        and     eax,0ffh
+        jmp     .done
+    .word:
+        and     eax,0ffffh
+        jmp     .done
+    .dword:
+    .done:
         GO_ON
 
 OP_LREF_PRI:
@@ -1501,7 +1516,9 @@ OP_FLOAT_ROUND:
 		;nearest mode
 		;correct so as to AVOID bankers rounding
 		or      ah, 4   ;set rounding mode to floor
-		fadd    dword [g_round_nearest]
+		push    03f000000h
+		fadd    dword [esp]
+		add     esp,4
 
 	.skip_correct:
 		mov     [ebp], eax
@@ -1526,9 +1543,11 @@ OP_FLOAT_CMP:
 		fnstsw  ax
 		fwait
 		sahf
-		cmovz   eax, [g_flags+4]
-		cmova   eax, [g_flags+8]
-		cmovb   eax, [g_flags+0]
+		mov     eax,0
+		mov     ebp,1
+		cmova   eax,ebp
+		mov     ebp,-1
+		cmovb   eax,ebp
 		GO_ON
 		
 OP_BREAK:
@@ -1624,10 +1643,6 @@ _return:
 
 Start_DATA
         ALIGN   4       ; This is essential to avoid misalignment stalls.
-
-lodb_and DD     0ffh, 0ffffh, 0, 0ffffffffh
-
-g_round_nearest	DD	0.5
 
 		GLOBAL g_flags
 g_flags:

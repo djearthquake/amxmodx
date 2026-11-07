@@ -912,42 +912,6 @@ int AMXAPI amx_Init(AMX *amx, void *program)
 
 #if defined JIT
 
-  #define CODESIZE_JIT    65536  /* approximate size of the code for the JIT */
-
-  #if defined __WIN32__   /* this also applies to Win32 "console" applications */
-
-    #define PROT_READ       0x1         /* page can be read */
-    #define PROT_WRITE      0x2         /* page can be written */
-    #define PROT_EXEC       0x4         /* page can be executed */
-    #define PROT_NONE       0x0         /* page can not be accessed */
-
-    static int mprotect(void *addr, size_t len, int prot)
-    {
-      DWORD prev, p = 0;
-      if ((prot & PROT_WRITE)!=0)
-        p = PAGE_EXECUTE_READWRITE;
-      else
-        p |= PAGE_EXECUTE_READ;
-      return !VirtualProtect(addr, len, p, &prev);
-    }
-
-    #define ALIGN(addr) (addr)
-
-  #elif defined LINUX || defined __FreeBSD__ || defined __OpenBSD__ || defined __APPLE__
-
-    /* Linux already has mprotect() */
-    /* But wants the address aligned! */
-    #define ALIGN(addr) ((void *)((intptr_t)addr & ~(sysconf(_SC_PAGESIZE)-1)))
-
-  #else
-
-    // TODO: Add cases for Linux, Unix, OS/2, ...
-
-    /* DOS32 has no imposed limits on its segments */
-    #define mprotect(addr, len, prot)   (0)
-
-  #endif /* #if defined __WIN32 __ */
-
 int AMXAPI amx_InitJIT(AMX *amx, void *reloc_table, void *native_code)
 {
   int res;
@@ -964,11 +928,6 @@ int AMXAPI amx_InitJIT(AMX *amx, void *reloc_table, void *native_code)
    * amx_BrowseRelocate().
    */
   assert(amx->sysreq_d==0);
-
-  if (mprotect(ALIGN(asm_runJIT), CODESIZE_JIT, PROT_READ | PROT_WRITE | PROT_EXEC) != 0)
-  {
-    return AMX_ERR_INIT_JIT;
-  }
 
   /* copy the prefix */
   memcpy(native_code, amx->base, ((AMX_HEADER *)(amx->base))->cod);

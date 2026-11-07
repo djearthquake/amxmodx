@@ -3121,7 +3121,7 @@ static cell AMX_NATIVE_CALL remove_quotes(AMX *amx, cell *params) /* 1 param */
 
 	if (*text == '\"')
 	{
-		register cell *temp = text;
+		cell *temp = text;
 		int len = 0;
 
 		while (*temp++)

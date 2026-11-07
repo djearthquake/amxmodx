@@ -43,8 +43,8 @@ template<>
 int HashFunction<ke::AString>(const ke::AString &k)
 {
 	unsigned long hash = 5381;
-	register const char *str = k.chars();
-	register char c;
+	const char *str = k.chars();
+	char c;
 	while ((c = *str++))
 	{
 		hash = ((hash << 5) + hash) + c; // hash*33 + c
@@ -56,8 +56,8 @@ template<>
 int HashAlt<const char *>(char const * const &k)
 {
 	unsigned long hash = 5381;
-	register const char *str = k;
-	register char c;
+	const char *str = k;
+	char c;
 	while ((c = *str++))
 	{
 		hash = ((hash << 5) + hash) + c; // hash*33 + c
@@ -69,8 +69,8 @@ template<>
 int HashAlt<ke::AString>(ke::AString const &k)
 {
 	unsigned long hash = 5381;
-	register const char *str = k.chars();
-	register char c;
+	const char *str = k.chars();
+	char c;
 	while ((c = *str++))
 	{
 		hash = ((hash << 5) + hash) + c; // hash*33 + c

@@ -336,5 +336,6 @@ void CoreConfig::CheckLegacyBufferedCommand(char *command)
 
 void CoreConfig::SetMapConfigTimer(float time)
 {
+
 	m_legacyMapConfigNextTime = gpGlobals->time + time;
 }

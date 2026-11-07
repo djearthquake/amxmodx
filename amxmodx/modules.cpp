@@ -497,7 +497,7 @@ int CheckModules(AMX *amx, char error[128])
 	return 1;
 }
 
-int set_amxnatives(AMX* amx, char error[128])
+int set_amxnatives(AMX* amx, char *error)
 {
 	for (auto module : g_modules)
 	{
@@ -1203,7 +1203,7 @@ extern "C" char *MNF_GetAmxStringNull(AMX *amx, cell amx_addr, int bufferId, int
 
 int MNF_GetAmxStringLen(const cell *ptr)
 {
-	register int c = 0;
+	int c = 0;
 
 	while (ptr[c])
 		++c;
@@ -1914,4 +1914,18 @@ void operator delete[](void * ptr)
 	if (ptr)
 		free(ptr);
 }
+
+#if __cplusplus >= 201402L
+void operator delete(void * ptr, size_t)
+{
+	if (ptr)
+		free(ptr);
+}
+
+void operator delete[](void * ptr, size_t)
+{
+	if (ptr)
+		free(ptr);
+}
+#endif
 #endif

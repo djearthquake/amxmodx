@@ -2587,7 +2587,7 @@ static cell init(int ident,int *tag,int *errorfound)
       litidx=1;         /* reset literal queue */
     } /* if */
     *tag=0;
-  } else if (constexpr(&i,tag,NULL)){
+  } else if (parse_constexpr(&i,tag,NULL)){
     litadd(i);          /* store expression result in literal table */
   } else {
     if (errorfound!=NULL)
@@ -2612,7 +2612,7 @@ static cell needsub(int *tag,constvalue **enumroot)
   if (matchtoken(']'))      /* we have already seen "[" */
     return 0;               /* zero size (like "char msg[]") */
 
-  constexpr(&val,tag,&sym); /* get value (must be constant expression) */
+  parse_constexpr(&val,tag,&sym); /* get value (must be constant expression) */
   if (val<0) {
     error(9);               /* negative array size is invalid; assumed zero */
     val=0;
@@ -2651,7 +2651,7 @@ static void decl_const(int vclass)
   symbolline=fline;             /* save line where symbol was found */
   strcpy(constname,str);        /* save symbol name */
   needtoken('=');
-  constexpr(&val,&exprtag,NULL);/* get value */
+  parse_constexpr(&val,&exprtag,NULL);/* get value */
   needtoken(tTERM);
   /* add_constant() checks for duplicate definitions */
   if (!matchtag(tag,exprtag,FALSE)) {
@@ -2707,11 +2707,11 @@ static void decl_enum(int vclass)
   multiplier=1;
   if (matchtoken('(')) {
     if (matchtoken(taADD)) {
-      constexpr(&increment,NULL,NULL);
+      parse_constexpr(&increment,NULL,NULL);
     } else if (matchtoken(taMULT)) {
-      constexpr(&multiplier,NULL,NULL);
+      parse_constexpr(&multiplier,NULL,NULL);
     } else if (matchtoken(taSHL)) {
-      constexpr(&val,NULL,NULL);
+      parse_constexpr(&val,NULL,NULL);
       while (val-->0)
         multiplier*=2;
     } /* if */
@@ -2749,11 +2749,11 @@ static void decl_enum(int vclass)
     strcpy(constname,str);              /* save symbol name */
     size=increment;                     /* default increment of 'val' */
     if (matchtoken('[')) {
-      constexpr(&size,&fieldtag,NULL);  /* get size */
+      parse_constexpr(&size,&fieldtag,NULL);  /* get size */
       needtoken(']');
     } /* if */
     if (matchtoken('='))
-      constexpr(&value,NULL,NULL);      /* get value */
+      parse_constexpr(&value,NULL,NULL);      /* get value */
     /* add_constant() checks whether a variable (global or local) or
      * a constant with the same name already exists
      */
@@ -3315,7 +3315,7 @@ static void funcstub(int native)
         tokeninfo(&val,&str);
         insert_alias(sym->name,str);
       } else {
-        constexpr(&val,NULL,NULL);
+        parse_constexpr(&val,NULL,NULL);
         sym->addr=val;
         /* At the moment, I have assumed that this syntax is only valid if
          * val < 0. To properly mix "normal" native functions and indexed
@@ -3891,7 +3891,7 @@ static void doarg(char *name,int ident,int offset,int tags[],int numtags,
         while (paranthese--)
           needtoken(')');
       } else {
-        constexpr(&arg->defvalue.val,&arg->defvalue_tag,NULL);
+        parse_constexpr(&arg->defvalue.val,&arg->defvalue_tag,NULL);
         assert(numtags>0);
         if (!matchtag(tags[0],arg->defvalue_tag,TRUE))
           error(213);           /* tagname mismatch */
@@ -4900,9 +4900,9 @@ static int doexpr(int comma,int chkeffect,int allowarray,int mark_endexpr,
   return ident;
 }
 
-/*  constexpr
+/*  parse_constexpr
  */
-SC_FUNC int constexpr(cell *val,int *tag,symbol **symptr)
+SC_FUNC int parse_constexpr(cell *val,int *tag,symbol **symptr)
 {
   int ident,index;
   cell cidx;
@@ -5214,7 +5214,7 @@ static void doswitch(void)
          *     parse all expressions until that special token.
          */
 
-        constexpr(&val,NULL,NULL);
+        parse_constexpr(&val,NULL,NULL);
         /* Search the insertion point (the table is kept in sorted order, so
          * that advanced abstract machines can sift the case table with a
          * binary search). Check for duplicate case values at the same time.
@@ -5237,7 +5237,7 @@ static void doswitch(void)
         insert_constval(csp,cse,itoh(lbl_case),val,0);
         if (matchtoken(tDBLDOT)) {
           cell end;
-          constexpr(&end,NULL,NULL);
+          parse_constexpr(&end,NULL,NULL);
           if (end<=val)
             error(50);                  /* invalid range */
           while (++val<=end) {

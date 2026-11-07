@@ -17,7 +17,7 @@
 		#include <amxmodx_version_auto.h>
 	#endif
 #else
-	#define AMXX_BUILD_TAG        "manual"
+	#define AMXX_BUILD_TAG        "ss"
 	#define AMXX_BUILD_LOCAL_REV  "0"
 	#define AMXX_BUILD_CSET       "0"
 	#define AMXX_BUILD_MAJOR      "1"
@@ -39,4 +39,3 @@
 #endif
 
 #endif /* _INCLUDE_AMXX_VERSION_INFORMATION_H_ */
-

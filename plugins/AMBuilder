@@ -101,9 +101,18 @@ for script_file in files:
 
   build_plugin(script_path, amxx_file)
 
-# admin_sql.amxx is generated from admin.sma.
 build_plugin(
-  script_path = os.path.join(builder.currentSourcePath, 'admin.sma'),
-  amxx_file = 'admin_sql.amxx',
-  extra_argv = ['USING_SQL=1']
+  script_path = os.path.join(builder.currentSourcePath, 'admin_sql.sma'),
+  amxx_file = 'admin_sql.amxx'
 )
+
+build_plugin(
+  script_path = os.path.join(builder.currentSourcePath, 'testsuite', 'pgsql_module_test.sma'),
+  amxx_file = 'pgsql_module_test.amxx'
+)
+
+if builder.target_platform == 'linux':
+  build_plugin(
+    script_path = os.path.join(builder.currentSourcePath, 'testsuite', 'http_test.sma'),
+    amxx_file = 'http_test.amxx'
+  )

@@ -30,8 +30,6 @@
 
 ke::Vector<regnative *> g_RegNatives;
 static char g_errorStr[512] = {0};
-bool g_Initialized = false;
-
 /* Stack stuff */
 regnative *g_pCurNative = NULL;
 AMX *g_pCaller = NULL;
@@ -437,11 +435,6 @@ static cell AMX_NATIVE_CALL register_library(AMX *amx, cell *params)
 //register_native(const name[], const handler[])
 static cell AMX_NATIVE_CALL register_native(AMX *amx, cell *params)
 {
-	if (!g_Initialized)
-		amxx_DynaInit((void *)(amxx_DynaCallback));
-
-	g_Initialized = true;
-
 	int len;
 	char *name = get_amxstring(amx, params[1], 0, len);
 	char *func = get_amxstring(amx, params[2], 1, len);
@@ -475,7 +468,7 @@ static cell AMX_NATIVE_CALL register_native(AMX *amx, cell *params)
 
 	int id = (int)g_RegNatives.length();
 	
-	amxx_DynaMake(pNative->pfn, id);
+	amxx_DynaMake(pNative->pfn, id, (void *)amxx_DynaCallback);
 	pNative->func = idx;
 	pNative->style = params[3];
 

@@ -206,15 +206,59 @@ class AMXXConfig(object):
       '-Wno-format-security',
       '-m32',
     ]
+    have_gcc = cxx.vendor == 'gcc'
+    have_clang = cxx.vendor == 'clang'
+
+    if builder.target_platform == 'linux':
+      if have_gcc:
+        if cxx.version >= '14.0':
+          linux_cxx_standard = '-std=c++23'
+        elif cxx.version >= '11.0':
+          linux_cxx_standard = '-std=c++20'
+        elif cxx.version >= '7.0':
+          linux_cxx_standard = '-std=c++17'
+        elif cxx.version >= '4.9':
+          linux_cxx_standard = '-std=c++14'
+        else:
+          linux_cxx_standard = '-std=c++11'
+        if cxx.version >= '14.0':
+          linux_c_standard = '-std=c23'
+        elif cxx.version >= '8.0':
+          linux_c_standard = '-std=c17'
+        elif cxx.version >= '4.7':
+          linux_c_standard = '-std=c11'
+        else:
+          linux_c_standard = '-std=c99'
+      elif have_clang:
+        if cxx.version >= '17.0':
+          linux_cxx_standard = '-std=c++23'
+        elif cxx.version >= '12.0':
+          linux_cxx_standard = '-std=c++20'
+        elif cxx.version >= '5.0':
+          linux_cxx_standard = '-std=c++17'
+        elif cxx.version >= '3.5':
+          linux_cxx_standard = '-std=c++14'
+        else:
+          linux_cxx_standard = '-std=c++11'
+        if cxx.version >= '18.0':
+          linux_c_standard = '-std=c23'
+        elif cxx.version >= '9.0':
+          linux_c_standard = '-std=c17'
+        elif cxx.version >= '3.1':
+          linux_c_standard = '-std=c11'
+        else:
+          linux_c_standard = '-std=c99'
+      else:
+        linux_cxx_standard = '-std=c++11'
+        linux_c_standard = '-std=c99'
+    else:
+      linux_cxx_standard = '-std=c++11'
+
     cxx.cxxflags += [
-      '-Wno-invalid-offsetof',
-      '-std=c++11',
+      linux_cxx_standard,
     ]
 
     cxx.linkflags += ['-m32']
-
-    have_gcc = cxx.vendor == 'gcc'
-    have_clang = cxx.vendor == 'clang'
 
     if have_clang or (have_gcc and cxx.version >= '4'):
       cxx.cflags += ['-fvisibility=hidden']
@@ -252,9 +296,14 @@ class AMXXConfig(object):
 
     if have_gcc:
       cxx.cflags += ['-Wno-parentheses']
-      cxx.c_only_flags += ['-std=c99']
+      if builder.target_platform == 'linux':
+        cxx.c_only_flags += [linux_c_standard]
+      else:
+        cxx.c_only_flags += ['-std=c99']
     elif have_clang:
       cxx.cflags += ['-Wno-logical-op-parentheses']
+      if builder.target_platform == 'linux':
+        cxx.c_only_flags += [linux_c_standard]
 
     cxx.cxxflags += [
       '-fno-exceptions',
@@ -486,12 +535,15 @@ builder.RunBuildScripts(
     'modules/fun/AMBuilder',
     'modules/geoip/AMBuilder',
     'modules/hamsandwich/AMBuilder',
+    'modules/http/AMBuilder',
     'modules/json/AMBuilder',
     'modules/mysqlx/AMBuilder',
     'modules/ns/AMBuilder',
     'modules/nvault/AMBuilder',
+    'modules/pgsql/AMBuilder',
     'modules/regex/AMBuilder',
     'modules/sockets/AMBuilder',
+    #comp unopt for now
     'modules/sqlite/AMBuilder',
     'modules/tfcx/AMBuilder',
     'modules/ts/tsfun/AMBuilder',
@@ -511,4 +563,3 @@ if builder.backend == 'amb2':
     ],
     { 'AMXX': AMXX }
   )
-

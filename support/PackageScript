@@ -160,10 +160,17 @@ for amxx_file in AMXX.plugins:
     builder.AddCopy(source_file, folder_map[package + '/addons/amxmodx/scripting'])
 
 # Copy the generated version .inc.
+version_include_copied = False
 for generated_header in AMXX.generated_headers:
   if 'amxmodx_version.inc' in generated_header.path:
     builder.AddCopy(generated_header, folder_map['base/addons/amxmodx/scripting/include'])
+    version_include_copied = True
     break
+if not version_include_copied:
+  builder.AddCopy(
+    os.path.join(builder.sourcePath, 'plugins', 'include', 'amxmodx_version.inc'),
+    folder_map['base/addons/amxmodx/scripting/include']
+  )
 
 # Copy WinCSX.
 if builder.target_platform == 'windows':
@@ -233,6 +240,7 @@ for config in configs:
 # Copy core scripting files.
 scripting_files = [
   'admin.sma',
+  'admin_sql.sma',
   'adminchat.sma',
   'admincmd.sma',
   'adminhelp.sma',
@@ -281,6 +289,8 @@ scripting_files = [
   'testsuite/textparse_test.ini',
   'testsuite/request_frame_test.sma',
   'testsuite/menu_page_callback_test.sma',
+  'testsuite/pgsql_module_test.sma',
+  'testsuite/http_test.sma',
   'include/amxconst.inc',
   'include/amxmisc.inc',
   'include/amxmodx.inc',
@@ -336,6 +346,7 @@ scripting_files = [
   'include/ham_const.inc',
   'include/hamsandwich.inc',
   'include/hlsdk_const.inc',
+  'include/http.inc',
   'include/message_const.inc',
   'include/message_stocks.inc',
   'include/messages.inc',
@@ -360,6 +371,7 @@ for filename in scripting_files:
 # Copy weird things.
 weirdfiles = [
   ('modules/geoip/GeoLite2-Country.mmdb', 'base/addons/amxmodx/data'),
+  ('BUILDING-LINUX-C23.md', 'base/addons/amxmodx'),
   ('plugins/esf/ESF_mod_tutorial.txt', 'esf/addons/amxmodx/scripting'),
 ]
 

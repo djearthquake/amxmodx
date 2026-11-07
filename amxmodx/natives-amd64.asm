@@ -13,22 +13,13 @@
 ;     Thanks to T(+)rget for pushing to implement this
 ;
 
-;;Initializes the global variable
-
 BITS 64
 
 section .text
 
-global amxx_DynaInit, _amxx_DynaInit
-;void amxx_DynaInit(void *ptr);
-amxx_DynaInit:
-_amxx_DynaInit:
-	mov	[GLOBAL_GATE wrt rip], rdi
-	ret
-	
 ;;Assembles the gateway function
 global amxx_DynaMake, _amxx_DynaMake
-;int amxx_DynaMake(char *buffer, int id);
+;int amxx_DynaMake(char *buffer, int id, void *callback);
 amxx_DynaMake:
 _amxx_DynaMake:
 	;we're not damaging the stack I think so we should be safe with no prologue
@@ -37,7 +28,7 @@ _amxx_DynaMake:
 	push		rsi		;push id
 	push		rdi		;push buffer
 	
-	mov		rsi, _amxx_DynaFuncStart
+	lea		rsi, [rel _amxx_DynaFuncStart]
 	mov		rcx, _amxx_DynaFuncEnd - _amxx_DynaFuncStart
 	cld		;clear direction flag (just in case)
 	rep		movsb
@@ -49,8 +40,7 @@ _amxx_DynaMake:
 	mov		[rdi], qword rax
 	;align rdi to the call
 	add		rdi, (_amxx_DynaFuncStart.call-_amxx_DynaFuncStart.move) 
-	mov		rax, qword [GLOBAL_GATE wrt rip]
-	;copy the real address
+	mov		rax, rdx
 	mov		[rdi], rax
 	
 	ret
@@ -90,6 +80,3 @@ _amxx_DynaCodesize:
 	ret
 
 section .data
-	
-GLOBAL_GATE		DQ		0
-

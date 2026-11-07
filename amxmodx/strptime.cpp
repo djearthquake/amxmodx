@@ -54,6 +54,7 @@ struct tm_int
            qY, /* Year (0...9999) */
            qy, /* year (0...99) */
            qC, /* Century (0...99) */
+           qc, /* Date and time representation */
            qw, /* Weekday (0...6; Sunday = 0) */
            qj, /* Day of year (1..366)=>[0...365] */
            qZ, /* 0 = STD, 1 = DST */

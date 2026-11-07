@@ -32,8 +32,7 @@ struct regnative
 	int style;
 };
 
-extern "C" void amxx_DynaInit(void *ptr);
-extern "C" void amxx_DynaMake(char *buffer, int id);
+extern "C" void amxx_DynaMake(char *buffer, int id, void *callback);
 extern "C" int amxx_DynaFunc(AMX *amx, cell *params);
 extern "C" int amxx_DynaCodesize();
 

@@ -141,13 +141,13 @@ if [ $? -eq 1 ]; then
 fi
 
 if [ $iswin -eq 1 ]; then
-  if [ ! -d "amxmodx/build_deps/nasm-2.13.03" ]; then
-    url=http://www.nasm.us/pub/nasm/releasebuilds/2.13.03/win32/nasm-2.13.03-win32.zip
-    dest=amxmodx/build_deps/nasm-2.13.03-win32.zip
+  if [ ! -f "amxmodx/build_deps/nasm/nasm.exe" ]; then
+    url=https://www.nasm.us/pub/nasm/releasebuilds/3.02/win32/nasm-3.02-win32.zip
+    dest=amxmodx/build_deps/nasm-3.02-win32.zip
     download_archive
     cd amxmodx/build_deps
-    unzip nasm-2.13.03-win32.zip
-    rm nasm-2.13.03-win32.zip
-    mv nasm-2.13.03 nasm
+    unzip nasm-3.02-win32.zip
+    rm nasm-3.02-win32.zip
+    mv nasm-3.02 nasm
   fi
 fi

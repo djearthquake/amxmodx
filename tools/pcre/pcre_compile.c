@@ -264,10 +264,12 @@ static const int verbcount = sizeof(verbs)/sizeof(verbitem);
 another regex library. */
 
 static const pcre_uchar sub_start_of_word[] = {
+  '\0',
   CHAR_BACKSLASH, CHAR_b, CHAR_LEFT_PARENTHESIS, CHAR_QUESTION_MARK,
   CHAR_EQUALS_SIGN, CHAR_BACKSLASH, CHAR_w, CHAR_RIGHT_PARENTHESIS, '\0' };
 
 static const pcre_uchar sub_end_of_word[] = {
+  '\0',
   CHAR_BACKSLASH, CHAR_b, CHAR_LEFT_PARENTHESIS, CHAR_QUESTION_MARK,
   CHAR_LESS_THAN_SIGN, CHAR_EQUALS_SIGN, CHAR_BACKSLASH, CHAR_w,
   CHAR_RIGHT_PARENTHESIS, '\0' };
@@ -4741,14 +4743,14 @@ for (;; ptr++)
     if (STRNCMP_UC_C8(ptr+1, STRING_WEIRD_STARTWORD, 6) == 0)
       {
       nestptr = ptr + 7;
-      ptr = sub_start_of_word - 1;
+      ptr = sub_start_of_word;
       continue;
       }
 
     if (STRNCMP_UC_C8(ptr+1, STRING_WEIRD_ENDWORD, 6) == 0)
       {
       nestptr = ptr + 7;
-      ptr = sub_end_of_word - 1;
+      ptr = sub_end_of_word;
       continue;
       }
 
@@ -8024,7 +8026,6 @@ pcre_uchar *code = *codeptr;
 pcre_uchar *last_branch = code;
 pcre_uchar *start_bracket = code;
 pcre_uchar *reverse_count = NULL;
-open_capitem capitem;
 int capnumber = 0;
 pcre_uint32 firstchar, reqchar;
 pcre_int32 firstcharflags, reqcharflags;
@@ -8073,11 +8074,12 @@ e.g. OP_SCBRAPOS, happens later, after the group has been compiled. */
 
 if (*code == OP_CBRA)
   {
+  open_capitem *capitem = &cd->open_caps_store[cd->parens_depth - 1];
   capnumber = GET2(code, 1 + LINK_SIZE);
-  capitem.number = capnumber;
-  capitem.next = cd->open_caps;
-  capitem.flag = FALSE;
-  cd->open_caps = &capitem;
+  capitem->number = capnumber;
+  capitem->next = cd->open_caps;
+  capitem->flag = FALSE;
+  cd->open_caps = capitem;
   }
 
 /* Offset is set zero to mark that this bracket is still open */
@@ -9481,4 +9483,3 @@ return (pcre32 *)re;
 }
 
 /* End of pcre_compile.c */
-

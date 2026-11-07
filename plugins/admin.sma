@@ -282,6 +282,9 @@ AddAdmin(id, auth[], accessflags[], password[], flags[], comment[]="")
 		if (!file_exists(configsDir))
 		{
 			console_print(id, "[%s] File ^"%s^" doesn't exist.", PLUGINNAME, configsDir)
+#if defined USING_SQL
+			SQL_FreeHandle(info)
+#endif
 			return
 		}
 
@@ -304,6 +307,9 @@ AddAdmin(id, auth[], accessflags[], password[], flags[], comment[]="")
 			if (containi(line_flags, flags) != -1 && equal(line_steamid, auth))
 			{
 				console_print(id, "[%s] %s already exists!", PLUGINNAME, auth)
+#if defined USING_SQL
+				SQL_FreeHandle(info)
+#endif
 				return
 			}
 		}
@@ -324,16 +330,34 @@ AddAdmin(id, auth[], accessflags[], password[], flags[], comment[]="")
 		if (!write_file(configsDir, linetoadd))
 			console_print(id, "[%s] Failed writing to %s!", PLUGINNAME, configsDir)
 #if defined USING_SQL
+		SQL_FreeHandle(info)
+		return
 	}
 	
 	new table[32]
+	new quotedAuth[67], quotedPassword[129], quotedAccess[129], quotedFlags[33]
 	
 	get_cvar_string("amx_sql_table", table, charsmax(table))
-	
-	new Handle:query = SQL_PrepareQuery(sql, "SELECT * FROM `%s` WHERE (`auth` = '%s')", table, auth)
 
-	if (!SQL_Execute(query))
+	if (SQL_QuoteString(sql, quotedAuth, charsmax(quotedAuth), auth) < 0
+		|| SQL_QuoteString(sql, quotedPassword, charsmax(quotedPassword), password) < 0
+		|| SQL_QuoteString(sql, quotedAccess, charsmax(quotedAccess), accessflags) < 0
+		|| SQL_QuoteString(sql, quotedFlags, charsmax(quotedFlags), flags) < 0)
 	{
+		server_print("[AMXX] Failed to escape SQL admin values.")
+		SQL_FreeHandle(sql)
+		SQL_FreeHandle(info)
+		return
+	}
+	
+	new Handle:query = SQL_PrepareQuery(sql, "SELECT * FROM %s WHERE auth = '%s'", table, quotedAuth)
+
+	if (query == Empty_Handle)
+	{
+		copy(error, charsmax(error), "Failed to prepare admin lookup query.")
+		server_print("[AMXX] %L", LANG_SERVER, "SQL_CANT_LOAD_ADMINS", error)
+		console_print(id, "[AMXX] %L", LANG_SERVER, "SQL_CANT_LOAD_ADMINS", error)
+	} else if (!SQL_Execute(query)) {
 		SQL_QueryError(query, error, charsmax(error))
 		server_print("[AMXX] %L", LANG_SERVER, "SQL_CANT_LOAD_ADMINS", error)
 		console_print(id, "[AMXX] %L", LANG_SERVER, "SQL_CANT_LOAD_ADMINS", error)
@@ -341,11 +365,35 @@ AddAdmin(id, auth[], accessflags[], password[], flags[], comment[]="")
 		console_print(id, "[%s] %s already exists!", PLUGINNAME, auth)
 	} else {
 		console_print(id, "Adding to database:^n^"%s^" ^"%s^" ^"%s^" ^"%s^"", auth, password, accessflags, flags)
-	
-		SQL_QueryAndIgnore(sql, "REPLACE INTO `%s` (`auth`, `password`, `access`, `flags`) VALUES ('%s', '%s', '%s', '%s')", table, auth, password, accessflags, flags)
+
+		new Handle:insert
+		new type[12]
+		SQL_GetAffinity(type, charsmax(type))
+		if (equali(type, "pgsql"))
+		{
+			insert = SQL_PrepareQuery(sql, "INSERT INTO %s (auth, password, access, flags) VALUES ('%s', '%s', '%s', '%s')",
+				table, quotedAuth, quotedPassword, quotedAccess, quotedFlags)
+		} else {
+			insert = SQL_PrepareQuery(sql, "REPLACE INTO `%s` (`auth`, `password`, `access`, `flags`) VALUES ('%s', '%s', '%s', '%s')",
+				table, quotedAuth, quotedPassword, quotedAccess, quotedFlags)
+		}
+
+		if (insert == Empty_Handle)
+		{
+			copy(error, charsmax(error), "Failed to prepare admin insert query.")
+			server_print("[AMXX] %L", LANG_SERVER, "SQL_CANT_LOAD_ADMINS", error)
+			console_print(id, "[AMXX] %L", LANG_SERVER, "SQL_CANT_LOAD_ADMINS", error)
+		} else if (!SQL_Execute(insert)) {
+			SQL_QueryError(insert, error, charsmax(error))
+			server_print("[AMXX] %L", LANG_SERVER, "SQL_CANT_LOAD_ADMINS", error)
+			console_print(id, "[AMXX] %L", LANG_SERVER, "SQL_CANT_LOAD_ADMINS", error)
+		}
+		if (insert != Empty_Handle)
+			SQL_FreeHandle(insert)
 	}
 	
-	SQL_FreeHandle(query)
+	if (query != Empty_Handle)
+		SQL_FreeHandle(query)
 	SQL_FreeHandle(sql)
 	SQL_FreeHandle(info)
 #endif
@@ -420,6 +468,7 @@ public adminSql()
 	if (sql == Empty_Handle)
 	{
 		server_print("[AMXX] %L", LANG_SERVER, "SQL_CANT_CON", error)
+		SQL_FreeHandle(info)
 		
 		//backup to users.ini
 		new configsDir[64]
@@ -439,15 +488,16 @@ public adminSql()
 		{
 			SQL_QueryAndIgnore(sql, "CREATE TABLE %s ( auth TEXT NOT NULL DEFAULT '', password TEXT NOT NULL DEFAULT '', access TEXT NOT NULL DEFAULT '', flags TEXT NOT NULL DEFAULT '' )", table)
 		}
-
-		query = SQL_PrepareQuery(sql, "SELECT auth, password, access, flags FROM %s", table)
 	} else {
-		SQL_QueryAndIgnore(sql, "CREATE TABLE IF NOT EXISTS `%s` ( `auth` VARCHAR( 32 ) NOT NULL, `password` VARCHAR( 32 ) NOT NULL, `access` VARCHAR( 32 ) NOT NULL, `flags` VARCHAR( 32 ) NOT NULL ) COMMENT = 'AMX Mod X Admins'", table)
-		query = SQL_PrepareQuery(sql,"SELECT `auth`,`password`,`access`,`flags` FROM `%s`", table)
+		SQL_QueryAndIgnore(sql, "CREATE TABLE IF NOT EXISTS %s ( auth VARCHAR(32) NOT NULL, password VARCHAR(32) NOT NULL, access VARCHAR(32) NOT NULL, flags VARCHAR(32) NOT NULL )", table)
 	}
 
-	if (!SQL_Execute(query))
+	query = SQL_PrepareQuery(sql, "SELECT auth, password, access, flags FROM %s", table)
+
+	if (query == Empty_Handle)
 	{
+		server_print("[AMXX] Failed to prepare admin query.")
+	} else if (!SQL_Execute(query)) {
 		SQL_QueryError(query, error, charsmax(error))
 		server_print("[AMXX] %L", LANG_SERVER, "SQL_CANT_LOAD_ADMINS", error)
 	} else if (!SQL_NumResults(query)) {
@@ -489,10 +539,12 @@ public adminSql()
 			server_print("[AMXX] %L", LANG_SERVER, "SQL_LOADED_ADMINS", AdminCount)
 		}
 		
-		SQL_FreeHandle(query)
-		SQL_FreeHandle(sql)
-		SQL_FreeHandle(info)
 	}
+
+	if (query != Empty_Handle)
+		SQL_FreeHandle(query)
+	SQL_FreeHandle(sql)
+	SQL_FreeHandle(info)
 	
 	return PLUGIN_HANDLED
 }

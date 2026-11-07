@@ -2425,6 +2425,7 @@ typedef struct compile_data {
   const pcre_uchar *end_pattern;    /* The end of the pattern */
   pcre_uchar *hwm;                  /* High watermark of workspace */
   open_capitem *open_caps;          /* Chain of open capture items */
+  open_capitem open_caps_store[PARENS_NEST_LIMIT]; /* One node per nesting level */
   named_group *named_groups;        /* Points to vector in pre-compile */
   pcre_uchar *name_table;           /* The name/number table */
   int  names_found;                 /* Number of entries so far */

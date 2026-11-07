@@ -262,14 +262,26 @@
 ;
 ; This is the work horse of the whole JIT: It actually copies the code.
 %macro GO_ON 2-3 4
-        mov     esi, %1         ;get source address of JIT code
-        mov     ecx,%2-%1            ;get number of bytes to copy
+        call    %%get_pc        ;get source address of JIT code
+%%get_pc:
+        pop     esi
+        lea     ebp,[esi + end_code - %%get_pc]
+        lea     esi,[esi + %1 - %%get_pc]
+        mov     ecx,__data_end_%+%2-%1 ;get number of bytes to copy
         mov     [ebx],edi               ;store address for jump-correction
         add     ebx,%3
         rep     movsb
-        cmp     ebx,[end_code]
+        cmp     ebx,[ebp]
         jae     code_gen_done
         jmp     dword [ebx]         ;go on with the next opcode
+        section .data
+%endmacro
+
+%macro OP_LABEL 1
+        section .data
+__data_end_%+%1:
+        section .text
+%1:
 %endmacro
 
 ; GWMV:
@@ -288,7 +300,28 @@
 ;
 %macro putval 1
         mov     eax,[ebx+4]
-        mov     dword [%1],eax
+        call    %%get_pc
+%%get_pc:
+        pop     ebp
+        lea     ebp,[ebp + %1 - %%get_pc]
+        mov     dword [ebp],eax
+%endmacro
+
+%macro DATA_ADDR 1
+        call    %%get_pc
+%%get_pc:
+        pop     ebp
+        lea     ebp,[ebp + %1 - %%get_pc]
+%endmacro
+
+%macro PATCH_BYTE 2
+        DATA_ADDR %1
+        mov     byte [ebp],%2
+%endmacro
+
+%macro PATCH_DWORD 2
+        DATA_ADDR %1
+        mov     dword [ebp],%2
 %endmacro
 
 ;
@@ -296,16 +329,17 @@
 ; code compilation is done.
 ;
 %macro RELOC 1-2 ;   adr, dest
-        mov     ebp,[reloc_num]
+        DATA_ADDR reloc_num
+        mov     ecx,[ebp]
         %if %0 < 2
           mov	eax,[ebx+4]
         %else
-          lea	eax,[%2]
+          lea     eax,[%2]
         %endif
-        mov     [edx+ebp],eax           ; write absolute destination
+        mov     [edx+ecx],eax           ; write absolute destination
         lea     eax,[edi+%1]
-        mov     [edx+ebp+4],eax         ; write address of jump operand
-        add     dword [reloc_num],8
+        mov     [edx+ecx+4],eax         ; write address of jump operand
+        add     dword [ebp],8
 %endmacro
 
 %macro _DROPARGS 1              ; (TR) remove function arguments from the stack
@@ -367,17 +401,22 @@ _asm_runJIT:
         mov     edx,[esp+24]            ; get jumps array
         mov     ebx,[esp+28]            ; get destination
 
-        mov     [amxhead],eax           ; save pointer to AMX_HEADER struct
+        DATA_ADDR amxhead
+        mov     [ebp],eax               ; save pointer to AMX_HEADER struct
         mov     ecx,[eax+_cod]          ; get offset of start of code
         mov     eax,[eax+_dat]          ; offset of start of data = end of code
         mov     edi,ecx
-        add     ecx,[amxhead]           ; compute the real pointer
-        add     eax,[amxhead]           ; dito
+        DATA_ADDR amxhead
+        add     ecx,[ebp]               ; compute the real pointer
+        add     eax,[ebp]               ; dito
         add     edi,ebx                 ; get write pointer into EDI
-        mov     [compiled_code],ebx
-        mov     [end_code],eax          ; Store end-of-code address, so JIT
+        DATA_ADDR compiled_code
+        mov     [ebp],ebx
+        DATA_ADDR end_code
+        mov     [ebp],eax               ; Store end-of-code address, so JIT
                                         ; compiler knows when to stop.
-        mov     dword [reloc_num],0 ; init the index into the jumps array
+        DATA_ADDR reloc_num
+        mov     dword [ebp],0            ; init the index into the jumps array
 
         mov     ebx,ecx
         jmp     dword [ecx]         ; start compiling
@@ -385,11 +424,13 @@ _asm_runJIT:
         ; The compiler will jump back here when code generation is complete.
 
 code_gen_done:                          ; Now copy the data section.
-        mov     ebp,[amxhead]           ; get source AMX_HEADER start address
+        DATA_ADDR amxhead
+        mov     ebp,[ebp]               ; get source AMX_HEADER start address
         add     edi,3                   ; DAT follows directly after COD
         and     edi,0fffffffch          ; align it on a DWORD boundary
         push    edi                     ; save data start pointer
-        mov     esi,[end_code]          ; get start of data segment
+        mov     esi,[ebp+_dat]          ; get start of data segment
+        add     esi,ebp                 ; AMX header offsets are base-relative
         mov     ecx,[ebp+_h_hea]
         sub     ecx,[ebp+_dat]          ; compute length of array to copy
         rep movsb                       ; copy the data
@@ -397,7 +438,8 @@ code_gen_done:                          ; Now copy the data section.
         ; Now adjust the register values in the compiled AMX_HEADER.
         ; COD stays the same since the size of AMX_HEADER doesn't change in
         ; compiled mode.
-        mov     ebx,[compiled_code]     ; get compiled AMX's header address
+        DATA_ADDR compiled_code
+        mov     ebx,[ebp]               ; get compiled AMX's header address
         pop     esi                     ; recall data start pointer
         sub     esi,ebx                 ; DAT = size of code + size of prefix
         mov     [ebx+_dat],esi          ; write corrected DAT register
@@ -406,7 +448,8 @@ code_gen_done:                          ; Now copy the data section.
 
         ; Now the calls/jumps in the compiled code have to be relocated.
         sub     ecx,ecx         ; reset offset into relocation table
-        cmp     ecx,[reloc_num]
+        DATA_ADDR reloc_num
+        cmp     ecx,[ebp]
         jae     reloc_code_done ; if there's nothing to fix, skip this part
     reloc_code_loop:
         mov     eax,[edx+ecx]   ; get destination address
@@ -427,11 +470,14 @@ code_gen_done:                          ; Now copy the data section.
         sub     eax,edi         ; make a relative offset
       write_reloc:
         mov     [edi-4],eax     ; write the relocated address
-        cmp     ecx,[reloc_num]
+        DATA_ADDR reloc_num
+        cmp     ecx,[ebp]
         jb      reloc_code_loop
 
 reloc_code_done:
         ; Relocate the addresses in the AMX_HEADER structure. (CIP and publics)
+        DATA_ADDR amxhead
+        mov     ebp,[ebp]               ; restore source AMX_HEADER pointer
         add     ebp,[ebp+_cod]  ; make all addresses relative to COD, not base
         mov     eax,[ebx+_h_cip]
         add     eax,ebp         ; get absolute source CIP
@@ -465,7 +511,7 @@ reloc_done:
         pop     ebp
         ret
 
-OP_LOAD_PRI:
+OP_LABEL OP_LOAD_PRI
 ;nop;
         putval  j_load_pri+2
         GO_ON   j_load_pri, OP_LOAD_ALT, 8
@@ -474,7 +520,7 @@ OP_LOAD_PRI:
         mov     eax,[edi+12345678h]
 	CHECKCODESIZE j_load_pri
 
-OP_LOAD_ALT:
+OP_LABEL OP_LOAD_ALT
 ;nop;
         putval  j_load_alt+2
         GO_ON   j_load_alt, OP_LOAD_S_PRI, 8
@@ -484,7 +530,7 @@ OP_LOAD_ALT:
 	CHECKCODESIZE j_load_alt
 
 ;good
-OP_LOAD_S_PRI:
+OP_LABEL OP_LOAD_S_PRI
 ;nop;
         putval  j_load_s_pri+2
         GO_ON   j_load_s_pri, OP_LOAD_S_ALT, 8
@@ -494,7 +540,7 @@ OP_LOAD_S_PRI:
 	CHECKCODESIZE j_load_s_pri
 
 ;good
-OP_LOAD_S_ALT:
+OP_LABEL OP_LOAD_S_ALT
 ;nop;
         putval  j_load_s_alt+2
         GO_ON   j_load_s_alt, OP_LOAD_I, 8
@@ -503,7 +549,7 @@ OP_LOAD_S_ALT:
         mov     edx,[ebx+12345678h]
 	CHECKCODESIZE j_load_s_alt
 
-OP_LOAD_I:
+OP_LABEL OP_LOAD_I
 ;nop;
         GO_ON   j_load_i, OP_LODB_I
 
@@ -514,11 +560,27 @@ OP_LOAD_I:
         mov     eax,[edi+eax]
 	CHECKCODESIZE j_load_i
 
-OP_LODB_I:
+OP_LABEL OP_LODB_I
 ;nop;
         mov     eax,[ebx+4]
-        mov     eax,dword [(lodb_and-4)+eax*4]
-        mov     dword [j_lodb_i_sm+1],eax   ;modify AND instruction
+        cmp     eax,1
+        je      .mask_byte
+        cmp     eax,2
+        je      .mask_word
+        cmp     eax,3
+        je      .mask_zero
+        mov     eax,0ffffffffh
+        jmp     .mask_ready
+    .mask_byte:
+        mov     eax,0ffh
+        jmp     .mask_ready
+    .mask_word:
+        mov     eax,0ffffh
+        jmp     .mask_ready
+    .mask_zero:
+        xor     eax,eax
+    .mask_ready:
+        PATCH_DWORD j_lodb_i_sm+1,eax
         GO_ON   j_lodb_i, OP_LREF_PRI, 8
 
         j_lodb_i:
@@ -530,7 +592,7 @@ OP_LODB_I:
         and     eax,12345678h
 	CHECKCODESIZE j_lodb_i
 
-OP_LREF_PRI:
+OP_LABEL OP_LREF_PRI
 ;nop;
         putval  j_lref_pri+2
         GO_ON   j_lref_pri, OP_LREF_ALT, 8
@@ -540,7 +602,7 @@ OP_LREF_PRI:
         mov     eax,[edi+eax]
 	CHECKCODESIZE j_lref_pri
 
-OP_LREF_ALT:
+OP_LABEL OP_LREF_ALT
 ;nop;
         putval  j_lref_alt+2
         GO_ON   j_lref_alt, OP_LREF_S_PRI, 8
@@ -550,7 +612,7 @@ OP_LREF_ALT:
         mov     edx,[edi+edx]
 	CHECKCODESIZE j_lref_alt
 
-OP_LREF_S_PRI:
+OP_LABEL OP_LREF_S_PRI
 ;nop;
         putval  j_lref_s_pri+2
         GO_ON   j_lref_s_pri, OP_LREF_S_ALT, 8
@@ -560,7 +622,7 @@ OP_LREF_S_PRI:
         mov     eax,[edi+eax]
 	CHECKCODESIZE j_lref_s_pri
 
-OP_LREF_S_ALT:
+OP_LABEL OP_LREF_S_ALT
 ;nop;
         putval  j_lref_s_alt+2
         GO_ON   j_lref_s_alt, OP_CONST_PRI, 8
@@ -571,7 +633,7 @@ OP_LREF_S_ALT:
 	CHECKCODESIZE j_lref_s_alt
 
 ;good
-OP_CONST_PRI:
+OP_LABEL OP_CONST_PRI
 ;nop;
         putval  j_const_pri+1
         GO_ON   j_const_pri, OP_CONST_ALT, 8
@@ -581,7 +643,7 @@ OP_CONST_PRI:
 	CHECKCODESIZE j_const_pri
 
 ;good
-OP_CONST_ALT:
+OP_LABEL OP_CONST_ALT
 ;nop;
         putval  j_const_alt+1
         GO_ON   j_const_alt, OP_ADDR_PRI, 8
@@ -591,7 +653,7 @@ OP_CONST_ALT:
 	CHECKCODESIZE j_const_alt
 
 ;good
-OP_ADDR_PRI:
+OP_LABEL OP_ADDR_PRI
 ;nop;
         putval  j_addr_pri+1
         GO_ON   j_addr_pri, OP_ADDR_ALT, 8
@@ -602,7 +664,7 @@ OP_ADDR_PRI:
 	CHECKCODESIZE j_addr_pri
 
 ;good
-OP_ADDR_ALT:
+OP_LABEL OP_ADDR_ALT
 ;nop;
         putval  j_addr_alt+1
         GO_ON   j_addr_alt, OP_STOR_PRI, 8
@@ -612,7 +674,7 @@ OP_ADDR_ALT:
         add     edx,frm
 	CHECKCODESIZE j_addr_alt
 
-OP_STOR_PRI:
+OP_LABEL OP_STOR_PRI
 ;nop;
         putval  j_stor_pri+2
         GO_ON   j_stor_pri, OP_STOR_ALT, 8
@@ -621,7 +683,7 @@ OP_STOR_PRI:
         mov     [edi+12345678h],eax
 	CHECKCODESIZE j_stor_pri
 
-OP_STOR_ALT:
+OP_LABEL OP_STOR_ALT
 ;nop;
         putval  j_stor_alt+2
         GO_ON   j_stor_alt, OP_STOR_S_PRI, 8
@@ -631,7 +693,7 @@ OP_STOR_ALT:
 	CHECKCODESIZE j_stor_alt
 
 ;good
-OP_STOR_S_PRI:
+OP_LABEL OP_STOR_S_PRI
 ;nop;
         putval  j_stor_s_pri+2
         GO_ON   j_stor_s_pri, OP_STOR_S_ALT, 8
@@ -641,7 +703,7 @@ OP_STOR_S_PRI:
 	CHECKCODESIZE j_stor_s_pri
 
 ;good
-OP_STOR_S_ALT:
+OP_LABEL OP_STOR_S_ALT
 ;nop;
         putval  j_stor_s_alt+2
         GO_ON   j_stor_s_alt, OP_STOR_I, 8
@@ -651,7 +713,7 @@ OP_STOR_S_ALT:
 	CHECKCODESIZE j_stor_s_alt
 
 ;good
-OP_STOR_I:
+OP_LABEL OP_STOR_I
 ;nop;
         GO_ON   j_stor_i, OP_STRB_I
 
@@ -662,7 +724,7 @@ OP_STOR_I:
         mov     [edi+edx],eax
 	CHECKCODESIZE j_stor_i
 
-OP_STRB_I:
+OP_LABEL OP_STRB_I
 ;nop;
         mov     eax,[ebx+4]
         cmp     eax,1
@@ -675,6 +737,9 @@ OP_STRB_I:
         mov     [edi+edx],al
         CHECKCODESIZE j_strb_i_1b
 
+section .data
+__data_end_strb_not1byte:
+section .text
     strb_not1byte:
         cmp     eax,4
         je      strb_4byte
@@ -686,6 +751,9 @@ OP_STRB_I:
         mov     [edi+edx],ax
         CHECKCODESIZE j_strb_i_2b
 
+section .data
+__data_end_strb_4byte:
+section .text
     strb_4byte:
         GO_ON   j_strb_i_4b, OP_SREF_PRI, 8
         j_strb_i_4b:
@@ -695,7 +763,7 @@ OP_STRB_I:
         mov     [edi+edx],eax
 	CHECKCODESIZE j_strb_i_4b
 
-OP_SREF_PRI:
+OP_LABEL OP_SREF_PRI
 ;nop;
         putval  j_sref_pri+2
         GO_ON   j_sref_pri, OP_SREF_ALT, 8
@@ -705,7 +773,7 @@ OP_SREF_PRI:
         mov     [edi+ebp],eax
 	CHECKCODESIZE j_sref_pri
 
-OP_SREF_ALT:
+OP_LABEL OP_SREF_ALT
 ;nop;
         putval  j_sref_alt+2
         GO_ON   j_sref_alt, OP_SREF_S_PRI, 8
@@ -715,7 +783,7 @@ OP_SREF_ALT:
         mov     [edi+ebp],edx
 	CHECKCODESIZE j_sref_alt
 
-OP_SREF_S_PRI:
+OP_LABEL OP_SREF_S_PRI
 ;nop;
         putval  j_sref_s_pri+2
         GO_ON   j_sref_s_pri, OP_SREF_S_ALT, 8
@@ -725,7 +793,7 @@ OP_SREF_S_PRI:
         mov     [edi+ebp],eax
 	CHECKCODESIZE j_sref_s_pri
 
-OP_SREF_S_ALT:
+OP_LABEL OP_SREF_S_ALT
 ;nop;
         putval  j_sref_s_alt+2
         GO_ON   j_sref_s_alt, OP_LIDX, 8
@@ -736,7 +804,7 @@ OP_SREF_S_ALT:
 	CHECKCODESIZE j_sref_s_alt
 
 ;good
-OP_LIDX:
+OP_LABEL OP_LIDX
 ;nop;
         GO_ON   j_lidx, OP_LIDX_B
 
@@ -748,10 +816,10 @@ OP_LIDX:
         mov     eax,[edi+eax]
 	CHECKCODESIZE j_lidx
 
-OP_LIDX_B:
+OP_LABEL OP_LIDX_B
 ;nop;
         mov     al,[ebx+4]
-        mov     byte [j_lidx_b+2],al
+        PATCH_BYTE j_lidx_b+2,al
         GO_ON   j_lidx_b, OP_IDXADDR, 8
 
         j_lidx_b:
@@ -764,7 +832,7 @@ OP_LIDX_B:
 	CHECKCODESIZE j_lidx_b
 
 ;good
-OP_IDXADDR:
+OP_LABEL OP_IDXADDR
 ;nop;
         GO_ON   j_idxaddr, OP_IDXADDR_B
 
@@ -772,10 +840,10 @@ OP_IDXADDR:
         lea     eax,[edx+4*eax]
 	CHECKCODESIZE j_idxaddr
 
-OP_IDXADDR_B:
+OP_LABEL OP_IDXADDR_B
 ;nop;
         mov     al,[ebx+4]
-        mov     byte [j_idxaddr_b+2],al
+        PATCH_BYTE j_idxaddr_b+2,al
         GO_ON   j_idxaddr_b, OP_ALIGN_PRI, 8
 
         j_idxaddr_b:
@@ -783,29 +851,29 @@ OP_IDXADDR_B:
         add     eax,edx
 	CHECKCODESIZE j_idxaddr_b
 
-OP_ALIGN_PRI:
+OP_LABEL OP_ALIGN_PRI
 ;nop;
         mov     eax,4
         sub     eax,[ebx+4]
-        mov     dword [j_align_pri+1],eax
+        PATCH_DWORD j_align_pri+1,eax
         GO_ON   j_align_pri, OP_ALIGN_ALT, 8
 
         j_align_pri:
         xor     eax,12345678h
 	CHECKCODESIZE j_align_pri
 
-OP_ALIGN_ALT:
+OP_LABEL OP_ALIGN_ALT
 ;nop;
         mov     eax,4
         sub     eax,[ebx+4]
-        mov     dword [j_align_alt+1],eax
+        PATCH_DWORD j_align_alt+1,eax
         GO_ON   j_align_alt, OP_LCTRL, 8
 
         j_align_alt:
         xor     edx,12345678h
 	CHECKCODESIZE j_align_alt
 
-OP_LCTRL:
+OP_LABEL OP_LCTRL
 ;nop;
         mov     eax,[ebx+4]
         cmp     eax,0
@@ -814,6 +882,9 @@ OP_LCTRL:
         j_lctrl_0:
         mov     eax,code ; 1=COD
     	CHECKCODESIZE j_lctrl_0
+section .data
+__data_end_lctrl_1:
+section .text
     lctrl_1:
         cmp     eax,1
         jne     lctrl_2
@@ -821,6 +892,9 @@ OP_LCTRL:
         j_lctrl_1:
         mov     eax,edi  ; 1=DAT
     	CHECKCODESIZE j_lctrl_1
+section .data
+__data_end_lctrl_2:
+section .text
     lctrl_2:
         cmp     eax,2
         jne     lctrl_3
@@ -828,6 +902,9 @@ OP_LCTRL:
         j_lctrl_2:
         mov     eax,hea  ; 2=HEA
     	CHECKCODESIZE j_lctrl_2
+section .data
+__data_end_lctrl_3:
+section .text
     lctrl_3:
         cmp     eax,3
         jne     lctrl_4
@@ -836,6 +913,9 @@ OP_LCTRL:
         mov     ebp,amx
         mov     eax,[ebp+_stp]
     	CHECKCODESIZE j_lctrl_3
+section .data
+__data_end_lctrl_4:
+section .text
     lctrl_4:
         cmp     eax,4
         jne     lctrl_5
@@ -844,6 +924,9 @@ OP_LCTRL:
         mov     eax,esi         ; 4=STK
         sub     eax,edi
     	CHECKCODESIZE j_lctrl_4
+section .data
+__data_end_lctrl_5:
+section .text
     lctrl_5:
         cmp     eax,5
         jne     lctrl_6
@@ -851,15 +934,18 @@ OP_LCTRL:
         j_lctrl_5:
         mov     eax,frm         ; 5=FRM
     	CHECKCODESIZE j_lctrl_5
+section .data
+__data_end_lctrl_6:
+section .text
     lctrl_6:
-        mov     dword [j_lctrl_6+1],edi
+        PATCH_DWORD j_lctrl_6+1,edi
         GO_ON   j_lctrl_6, OP_SCTRL, 8
         j_lctrl_6:
         mov     eax,12345678h   ; 6=CIP
 	CHECKCODESIZE j_lctrl_6
 
 
-OP_SCTRL:
+OP_LABEL OP_SCTRL
 ;nop;
         mov     eax,[ebx+4]
         cmp     eax,2
@@ -868,6 +954,9 @@ OP_SCTRL:
         j_sctrl_2:
         mov     hea,eax  ; 2=HEA
     	CHECKCODESIZE j_sctrl_2
+section .data
+__data_end_sctrl_4:
+section .text
     sctrl_4:
         cmp     eax,4
         jne     sctrl_5
@@ -877,6 +966,9 @@ OP_SCTRL:
         ;add    esp,edi  ; relocate stack
         lea     esi,[eax+edi]
     	CHECKCODESIZE j_sctrl_4
+section .data
+__data_end_sctrl_5:
+section .text
     sctrl_5:
         cmp     eax,5
         jne     sctrl_ignore
@@ -886,12 +978,15 @@ OP_SCTRL:
         mov     frm,eax
         add     ebx,edi  ; relocate frame
     	CHECKCODESIZE j_sctrl_5
+section .data
+__data_end_sctrl_ignore:
+section .text
     sctrl_ignore:
         mov     [ebx],edi
         add     ebx,8
         jmp     dword [ebx]
 
-OP_MOVE_PRI:
+OP_LABEL OP_MOVE_PRI
 ;nop;
         GO_ON   j_move_pri, OP_MOVE_ALT
 
@@ -900,7 +995,7 @@ OP_MOVE_PRI:
 	CHECKCODESIZE j_move_pri
 
 ;good
-OP_MOVE_ALT:
+OP_LABEL OP_MOVE_ALT
 ;nop;
         GO_ON   j_move_alt, OP_XCHG
 
@@ -908,7 +1003,7 @@ OP_MOVE_ALT:
         mov     edx,eax
 	CHECKCODESIZE j_move_alt
 
-OP_XCHG:
+OP_LABEL OP_XCHG
 ;nop;
         GO_ON   j_xchg, OP_PUSH_PRI
 
@@ -917,7 +1012,7 @@ OP_XCHG:
 	CHECKCODESIZE j_xchg
 
 ;good
-OP_PUSH_PRI:
+OP_LABEL OP_PUSH_PRI
 ;nop;
         GO_ON   j_push_pri, OP_PUSH_ALT
 
@@ -926,7 +1021,7 @@ OP_PUSH_PRI:
 	CHECKCODESIZE j_push_pri
 
 ;good
-OP_PUSH_ALT:
+OP_LABEL OP_PUSH_ALT
 ;nop;
         GO_ON   j_push_alt, OP_PUSH_R_PRI
 
@@ -934,7 +1029,7 @@ OP_PUSH_ALT:
         _PUSH   edx
 	CHECKCODESIZE j_push_alt
 
-OP_PUSH_R_PRI:
+OP_LABEL OP_PUSH_R_PRI
 ;nop;
         putval  j_push_r_pri+2
         GO_ON   j_push_r_pri, OP_PUSH_C, 8
@@ -951,7 +1046,7 @@ OP_PUSH_R_PRI:
 	CHECKCODESIZE j_push_r_pri
 
 ;good
-OP_PUSH_C:
+OP_LABEL OP_PUSH_C
 ;nop;
         putval  j_push_c_end-4
         GO_ON   j_push_c, OP_PUSH, 8
@@ -961,7 +1056,7 @@ OP_PUSH_C:
     j_push_c_end:
 	CHECKCODESIZE j_push_c
 
-OP_PUSH:
+OP_LABEL OP_PUSH
 ;nop;
         putval  j_push_end-6
         GO_ON   j_push, OP_PUSH_S, 8
@@ -972,7 +1067,7 @@ OP_PUSH:
 	CHECKCODESIZE j_push
 
 ;good
-OP_PUSH_S:
+OP_LABEL OP_PUSH_S
 ;nop;
         putval  j_push_s_end-6
         GO_ON   j_push_s, OP_POP_PRI, 8
@@ -982,7 +1077,7 @@ OP_PUSH_S:
         j_push_s_end:
 	CHECKCODESIZE j_push_s
 
-OP_POP_PRI:
+OP_LABEL OP_POP_PRI
 ;nop;
         GO_ON   j_pop_pri, OP_POP_ALT
 
@@ -991,7 +1086,7 @@ OP_POP_PRI:
 	CHECKCODESIZE j_pop_pri
 
 ;good
-OP_POP_ALT:
+OP_LABEL OP_POP_ALT
 ;nop;
         GO_ON   j_pop_alt, OP_STACK
 
@@ -1000,7 +1095,7 @@ OP_POP_ALT:
 	CHECKCODESIZE j_pop_alt
 
 ;good
-OP_STACK:
+OP_LABEL OP_STACK
 ;nop;
         putval  j_stack+4
         GO_ON   j_stack, OP_HEAP, 8
@@ -1015,7 +1110,7 @@ OP_STACK:
 	CHECKCODESIZE j_stack
 
 ;good
-OP_HEAP:
+OP_LABEL OP_HEAP
 ;nop;
         putval  j_heap_call-4
         GO_ON   j_heap, OP_PROC, 8
@@ -1030,7 +1125,7 @@ OP_HEAP:
 	CHECKCODESIZE j_heap
 
 ;good
-OP_PROC:
+OP_LABEL OP_PROC
 ;nop;
         GO_ON   j_proc, OP_RET
 
@@ -1041,7 +1136,7 @@ OP_PROC:
         sub     frm,edi         ; relocate frame
 	CHECKCODESIZE j_proc
 
-OP_RET:
+OP_LABEL OP_RET
 ;nop;
         GO_ON   j_ret, OP_RETN
 
@@ -1055,7 +1150,7 @@ OP_RET:
 	CHECKCODESIZE j_ret
 
 ;good
-OP_RETN:
+OP_LABEL OP_RETN
 ;nop;
         GO_ON   j_retn, OP_CALL
 
@@ -1064,7 +1159,7 @@ OP_RETN:
 	CHECKCODESIZE j_retn
 
 ;good
-OP_CALL:
+OP_LABEL OP_CALL
 ;nop;
         RELOC   j_call_e8-j_call+1
         GO_ON   j_call, OP_CALL_I, 8
@@ -1076,7 +1171,7 @@ OP_CALL:
         db      0e8h, 0, 0, 0, 0
 	CHECKCODESIZE j_call
 
-OP_CALL_I:
+OP_LABEL OP_CALL_I
 ;nop;
         GO_ON   j_call_i, OP_JUMP
 
@@ -1086,7 +1181,7 @@ OP_CALL_I:
 	CHECKCODESIZE j_call_i
 
 ;good
-OP_JUMP:
+OP_LABEL OP_JUMP
 ;nop;
         RELOC   1
         GO_ON   j_jump, OP_JREL, 8
@@ -1096,7 +1191,7 @@ OP_JUMP:
         DD      12345678h
 	CHECKCODESIZE j_jump
 
-OP_JREL:
+OP_LABEL OP_JREL
 ;nop;
         mov     eax,[ebx+4]
         ; create an absolute address from the relative one
@@ -1105,7 +1200,7 @@ OP_JREL:
         GO_ON   j_jump, OP_JREL, 8
 
 ;good
-OP_JZER:
+OP_LABEL OP_JZER
 ;nop;
         RELOC   4
         GO_ON   j_jzer, OP_JNZ, 8
@@ -1116,7 +1211,7 @@ OP_JZER:
 	CHECKCODESIZE j_jzer
 
 ;good
-OP_JNZ:
+OP_LABEL OP_JNZ
 ;nop;
         RELOC   4
         GO_ON   j_jnz, OP_JEQ, 8
@@ -1127,7 +1222,7 @@ OP_JNZ:
 	CHECKCODESIZE j_jnz
 
 ;good
-OP_JEQ:
+OP_LABEL OP_JEQ
 ;nop;
         RELOC   4
         GO_ON   j_jeq, OP_JNEQ, 8
@@ -1137,7 +1232,7 @@ OP_JEQ:
         DB      0fh, 84h, 0, 0, 0, 0    ;je NEAR 0      (tasm sucks a bit)
 	CHECKCODESIZE j_jeq
 
-OP_JNEQ:
+OP_LABEL OP_JNEQ
 ;nop;
         RELOC   4
         GO_ON   j_jneq, OP_JLESS, 8
@@ -1147,7 +1242,7 @@ OP_JNEQ:
         DB      0fh, 85h, 0, 0, 0, 0    ;jne NEAR 0     (tasm sucks a bit)
 	CHECKCODESIZE j_jneq
 
-OP_JLESS:
+OP_LABEL OP_JLESS
 ;nop;
         RELOC   4
         GO_ON   j_jless, OP_JLEQ, 8
@@ -1157,7 +1252,7 @@ OP_JLESS:
         DB      0fh, 82h, 0, 0, 0, 0    ;jb NEAR 0      (tasm sucks a bit)
 	CHECKCODESIZE j_jless
 
-OP_JLEQ:
+OP_LABEL OP_JLEQ
 ;nop;
         RELOC   4
         GO_ON   j_jleq, OP_JGRTR, 8
@@ -1167,7 +1262,7 @@ OP_JLEQ:
         DB      0fh, 86h, 0, 0, 0, 0    ;jbe NEAR 0     (tasm sucks a bit)
 	CHECKCODESIZE j_jleq
 
-OP_JGRTR:
+OP_LABEL OP_JGRTR
 ;nop;
         RELOC   4
         GO_ON   j_jgrtr, OP_JGEQ, 8
@@ -1177,7 +1272,7 @@ OP_JGRTR:
         DB      0fh, 87h, 0, 0, 0, 0    ;ja NEAR 0      (tasm sucks a bit)
 	CHECKCODESIZE j_jgrtr
 
-OP_JGEQ:
+OP_LABEL OP_JGEQ
 ;nop;
         RELOC   4
         GO_ON   j_jgeq, OP_JSLESS, 8
@@ -1187,7 +1282,7 @@ OP_JGEQ:
         DB      0fh, 83h, 0, 0, 0, 0    ;jae NEAR 0 (unsigned comparison)
 	CHECKCODESIZE j_jgeq
 
-OP_JSLESS:
+OP_LABEL OP_JSLESS
 ;nop;
         RELOC   4
         GO_ON   j_jsless, OP_JSLEQ, 8
@@ -1198,7 +1293,7 @@ OP_JSLESS:
 	CHECKCODESIZE j_jsless
 
 ;good
-OP_JSLEQ:
+OP_LABEL OP_JSLEQ
 ;nop;
         RELOC   4
         GO_ON   j_jsleq, OP_JSGRTR, 8
@@ -1208,7 +1303,7 @@ OP_JSLEQ:
         DB      0fh, 8eh, 0, 0, 0, 0    ;jle NEAR 0
 	CHECKCODESIZE j_jsleq
 
-OP_JSGRTR:
+OP_LABEL OP_JSGRTR
 ;nop;
         RELOC   4
         GO_ON   j_jsgrtr, OP_JSGEQ, 8
@@ -1218,7 +1313,7 @@ OP_JSGRTR:
         DB      0fh, 8Fh, 0, 0, 0, 0    ;jg NEAR 0
 	CHECKCODESIZE j_jsgrtr
 
-OP_JSGEQ:
+OP_LABEL OP_JSGEQ
 ;nop;
         RELOC   4
         GO_ON   j_jsgeq, OP_SHL, 8
@@ -1228,7 +1323,7 @@ OP_JSGEQ:
         DB      0fh, 8dh, 0, 0, 0, 0    ;jge NEAR 0
 	CHECKCODESIZE j_jsgeq
 
-OP_SHL:
+OP_LABEL OP_SHL
 ;nop;
         GO_ON   j_shl, OP_SHR
    j_shl:
@@ -1238,7 +1333,7 @@ OP_SHL:
         pop		ecx
 	CHECKCODESIZE j_shl
 
-OP_SHR:
+OP_LABEL OP_SHR
 ;nop;
         GO_ON   j_shr, OP_SSHR
    j_shr:
@@ -1248,7 +1343,7 @@ OP_SHR:
         pop		ecx
 	CHECKCODESIZE j_shr
 
-OP_SSHR:
+OP_LABEL OP_SSHR
 ;nop;
         GO_ON   j_sshr, OP_SHL_C_PRI
    j_sshr:
@@ -1258,43 +1353,43 @@ OP_SSHR:
         pop		ecx
 	CHECKCODESIZE j_sshr
 
-OP_SHL_C_PRI:
+OP_LABEL OP_SHL_C_PRI
 ;nop;
         mov     al,[ebx+4]
-        mov     byte [j_shl_c_pri+2],al
+        PATCH_BYTE j_shl_c_pri+2,al
         GO_ON   j_shl_c_pri, OP_SHL_C_ALT, 8
     j_shl_c_pri:
         shl     eax,12h
 	CHECKCODESIZE j_shl_c_pri
 
-OP_SHL_C_ALT:
+OP_LABEL OP_SHL_C_ALT
 ;nop;
         mov     al,[ebx+4]
-        mov     byte [j_shl_c_alt+2],al
+        PATCH_BYTE j_shl_c_alt+2,al
         GO_ON   j_shl_c_alt, OP_SHR_C_PRI, 8
     j_shl_c_alt:
         shl     edx,12h
 	CHECKCODESIZE j_shl_c_alt
 
-OP_SHR_C_PRI:
+OP_LABEL OP_SHR_C_PRI
 ;nop;
         mov     al,[ebx+4]
-        mov     byte [j_shr_c_pri+2],al
+        PATCH_BYTE j_shr_c_pri+2,al
         GO_ON   j_shr_c_pri, OP_SHR_C_ALT, 8
     j_shr_c_pri:
         shr     eax,12h
 	CHECKCODESIZE j_shr_c_pri
 
-OP_SHR_C_ALT:
+OP_LABEL OP_SHR_C_ALT
 ;nop;
         mov     al,[ebx+4]
-        mov     byte [j_shr_c_alt+2],al
+        PATCH_BYTE j_shr_c_alt+2,al
         GO_ON   j_shr_c_alt, OP_SMUL, 8
     j_shr_c_alt:
         shr     edx,12h
 	CHECKCODESIZE j_shr_c_alt
 
-OP_SMUL:
+OP_LABEL OP_SMUL
 ;nop;
         GO_ON   j_smul, OP_SDIV
     j_smul:
@@ -1304,14 +1399,14 @@ OP_SMUL:
 	CHECKCODESIZE j_smul
 
 ;good
-OP_SDIV:
+OP_LABEL OP_SDIV
 ;nop;
         GO_ON   j_sdiv, OP_SDIV_ALT
     j_sdiv:
         call    [jit_sdiv]
 	CHECKCODESIZE j_sdiv
 
-OP_SDIV_ALT:
+OP_LABEL OP_SDIV_ALT
 ;nop;
         GO_ON   j_sdiv_alt, OP_UMUL
     j_sdiv_alt:
@@ -1319,7 +1414,7 @@ OP_SDIV_ALT:
         call    [jit_sdiv]
 	CHECKCODESIZE j_sdiv_alt
 
-OP_UMUL:
+OP_LABEL OP_UMUL
 ;nop;
         GO_ON   j_umul, OP_UDIV
     j_umul:
@@ -1328,7 +1423,7 @@ OP_UMUL:
         pop     edx
 	CHECKCODESIZE j_umul
 
-OP_UDIV:
+OP_LABEL OP_UDIV
 ;nop;
         GO_ON   j_udiv, OP_UDIV_ALT
     j_udiv:
@@ -1338,7 +1433,7 @@ OP_UDIV:
         div     ebp
 	CHECKCODESIZE j_udiv
 
-OP_UDIV_ALT:
+OP_LABEL OP_UDIV_ALT
 ;nop;
         GO_ON   j_udiv_alt, OP_ADD
     j_udiv_alt:
@@ -1350,7 +1445,7 @@ OP_UDIV_ALT:
 	CHECKCODESIZE j_udiv_alt
 
 ;good
-OP_ADD:
+OP_LABEL OP_ADD
 ;nop;
         GO_ON   j_add, OP_SUB
     j_add:
@@ -1358,7 +1453,7 @@ OP_ADD:
 	CHECKCODESIZE j_add
 
 ;good
-OP_SUB:
+OP_LABEL OP_SUB
 ;nop;
         GO_ON   j_sub, OP_SUB_ALT
     j_sub:
@@ -1366,7 +1461,7 @@ OP_SUB:
 	CHECKCODESIZE j_sub
 
 ;good
-OP_SUB_ALT:
+OP_LABEL OP_SUB_ALT
 ;nop;
         GO_ON   j_sub_alt, OP_AND
     j_sub_alt:
@@ -1374,28 +1469,28 @@ OP_SUB_ALT:
         add     eax,edx
 	CHECKCODESIZE j_sub_alt
 
-OP_AND:
+OP_LABEL OP_AND
 ;nop;
         GO_ON   j_and, OP_OR
     j_and:
         and     eax,edx
 	CHECKCODESIZE j_and
 
-OP_OR:
+OP_LABEL OP_OR
 ;nop;
         GO_ON   j_or, OP_XOR
     j_or:
         or      eax,edx
 	CHECKCODESIZE j_or
 
-OP_XOR:
+OP_LABEL OP_XOR
 ;nop;
         GO_ON   j_xor, OP_NOT
     j_xor:
         xor     eax,edx
 	CHECKCODESIZE j_xor
 
-OP_NOT:
+OP_LABEL OP_NOT
 ;nop;
         GO_ON   j_not, OP_NEG
     j_not:
@@ -1404,14 +1499,14 @@ OP_NOT:
         inc     eax             ; -1 => 0 and 0 => 1
 	CHECKCODESIZE j_not
 
-OP_NEG:
+OP_LABEL OP_NEG
 ;nop;
         GO_ON   j_neg, OP_INVERT
     j_neg:
         neg     eax
 	CHECKCODESIZE j_neg
 
-OP_INVERT:
+OP_LABEL OP_INVERT
 ;nop;
         GO_ON   j_invert, OP_ADD_C
     j_invert:
@@ -1419,7 +1514,7 @@ OP_INVERT:
 	CHECKCODESIZE j_invert
 
 ;good
-OP_ADD_C:
+OP_LABEL OP_ADD_C
 ;nop;
         putval  j_add_c+1
         GO_ON   j_add_c, OP_SMUL_C, 8
@@ -1428,7 +1523,7 @@ OP_ADD_C:
 	CHECKCODESIZE j_add_c
 
 ;good
-OP_SMUL_C:
+OP_LABEL OP_SMUL_C
 ;nop;
         putval  j_smul_c+3
         GO_ON   j_smul_c, OP_ZERO_PRI, 8
@@ -1439,7 +1534,7 @@ OP_SMUL_C:
 	CHECKCODESIZE j_smul_c
 
 ;good
-OP_ZERO_PRI:
+OP_LABEL OP_ZERO_PRI
 ;nop;
         GO_ON   j_zero_pri, OP_ZERO_ALT
     j_zero_pri:
@@ -1447,14 +1542,14 @@ OP_ZERO_PRI:
 	CHECKCODESIZE j_zero_pri
 
 ;good
-OP_ZERO_ALT:
+OP_LABEL OP_ZERO_ALT
 ;nop;
         GO_ON   j_zero_alt, OP_ZERO
     j_zero_alt:
         sub     edx,edx
 	CHECKCODESIZE j_zero_alt
 
-OP_ZERO:
+OP_LABEL OP_ZERO
 ;nop;
         putval  j_zero+2
         GO_ON   j_zero, OP_ZERO_S, 8
@@ -1462,7 +1557,7 @@ OP_ZERO:
         mov     dword [edi+12345678h],0
 	CHECKCODESIZE j_zero
 
-OP_ZERO_S:
+OP_LABEL OP_ZERO_S
 ;nop;
         putval  j_zero_s+2
         GO_ON   j_zero_s, OP_SIGN_PRI, 8
@@ -1470,7 +1565,7 @@ OP_ZERO_S:
         mov     dword [ebx+12345678h],0
 	CHECKCODESIZE j_zero_s
 
-OP_SIGN_PRI:
+OP_LABEL OP_SIGN_PRI
 ;nop;
         GO_ON   j_sign_pri, OP_SIGN_ALT
     j_sign_pri:
@@ -1478,7 +1573,7 @@ OP_SIGN_PRI:
         sar     eax,24
 	CHECKCODESIZE j_sign_pri
 
-OP_SIGN_ALT:
+OP_LABEL OP_SIGN_ALT
 ;nop;
         GO_ON   j_sign_alt, OP_EQ
     j_sign_alt:
@@ -1486,7 +1581,7 @@ OP_SIGN_ALT:
         sar     edx,24
 	CHECKCODESIZE j_sign_alt
 
-OP_EQ:
+OP_LABEL OP_EQ
 ;nop;
         GO_ON   j_eq, OP_NEQ
     j_eq:
@@ -1495,7 +1590,7 @@ OP_EQ:
         sete    al
 	CHECKCODESIZE j_eq
 
-OP_NEQ:
+OP_LABEL OP_NEQ
 ;nop;
         GO_ON   j_neq, OP_LESS
     j_neq:
@@ -1504,7 +1599,7 @@ OP_NEQ:
         setne   al
 	CHECKCODESIZE j_neq
 
-OP_LESS:
+OP_LABEL OP_LESS
 ;nop;
         GO_ON   j_less, OP_LEQ
     j_less:
@@ -1513,7 +1608,7 @@ OP_LESS:
         setb    al
 	CHECKCODESIZE j_less
 
-OP_LEQ:
+OP_LABEL OP_LEQ
 ;nop;
         GO_ON   j_leq, OP_GRTR
     j_leq:
@@ -1522,7 +1617,7 @@ OP_LEQ:
         setbe   al
 	CHECKCODESIZE j_leq
 
-OP_GRTR:
+OP_LABEL OP_GRTR
 ;nop;
         GO_ON   j_grtr, OP_GEQ
     j_grtr:
@@ -1531,7 +1626,7 @@ OP_GRTR:
         seta    al
 	CHECKCODESIZE j_grtr
 
-OP_GEQ:
+OP_LABEL OP_GEQ
 ;nop;
         GO_ON   j_geq, OP_SLESS
     j_geq:
@@ -1541,7 +1636,7 @@ OP_GEQ:
 	CHECKCODESIZE j_geq
 
 ;good
-OP_SLESS:
+OP_LABEL OP_SLESS
 ;nop;
         GO_ON   j_sless, OP_SLEQ
     j_sless:
@@ -1550,7 +1645,7 @@ OP_SLESS:
         setl    al
 	CHECKCODESIZE j_sless
 
-OP_SLEQ:
+OP_LABEL OP_SLEQ
 ;nop;
         GO_ON   j_sleq, OP_SGRTR
     j_sleq:
@@ -1559,7 +1654,7 @@ OP_SLEQ:
         setle   al
 	CHECKCODESIZE j_sleq
 
-OP_SGRTR:
+OP_LABEL OP_SGRTR
 ;nop;
         GO_ON   j_sgrtr, OP_SGEQ
     j_sgrtr:
@@ -1568,7 +1663,7 @@ OP_SGRTR:
         setg    al
 	CHECKCODESIZE j_sgrtr
 
-OP_SGEQ:
+OP_LABEL OP_SGEQ
 ;nop;
         GO_ON   j_sgeq, OP_EQ_C_PRI
     j_sgeq:
@@ -1577,7 +1672,7 @@ OP_SGEQ:
         setge   al
 	CHECKCODESIZE j_sgeq
 
-OP_EQ_C_PRI:
+OP_LABEL OP_EQ_C_PRI
 ;nop;
         putval  j_eq_c_pri+1
         GO_ON   j_eq_c_pri, OP_EQ_C_ALT, 8
@@ -1587,7 +1682,7 @@ OP_EQ_C_PRI:
         sete    al
 	CHECKCODESIZE j_eq_c_pri
 
-OP_EQ_C_ALT:
+OP_LABEL OP_EQ_C_ALT
 ;nop;
         putval  j_eq_c_alt+4
         GO_ON   j_eq_c_alt, OP_INC_PRI, 8
@@ -1597,21 +1692,21 @@ OP_EQ_C_ALT:
         sete    al
 	CHECKCODESIZE j_eq_c_alt
 
-OP_INC_PRI:
+OP_LABEL OP_INC_PRI
 ;nop;
         GO_ON   j_inc_pri, OP_INC_ALT
     j_inc_pri:
         inc     eax
 	CHECKCODESIZE j_inc_pri
 
-OP_INC_ALT:
+OP_LABEL OP_INC_ALT
 ;nop;
         GO_ON   j_inc_alt, OP_INC
     j_inc_alt:
         inc     edx
 	CHECKCODESIZE j_inc_alt
 
-OP_INC:
+OP_LABEL OP_INC
 ;nop;
         putval  j_inc+2
         GO_ON   j_inc, OP_INC_S, 8
@@ -1620,7 +1715,7 @@ OP_INC:
 	CHECKCODESIZE j_inc
 
 ;good
-OP_INC_S:
+OP_LABEL OP_INC_S
 ;nop;
         putval  j_inc_s+2
         GO_ON   j_inc_s, OP_INC_I, 8
@@ -1628,28 +1723,28 @@ OP_INC_S:
         inc     dword [ebx+12345678h]
 	CHECKCODESIZE j_inc_s
 
-OP_INC_I:
+OP_LABEL OP_INC_I
 ;nop;
         GO_ON   j_inc_i, OP_DEC_PRI
     j_inc_i:
         inc     dword [edi+eax]
 	CHECKCODESIZE j_inc_i
 
-OP_DEC_PRI:
+OP_LABEL OP_DEC_PRI
 ;nop;
         GO_ON   j_dec_pri, OP_DEC_ALT
     j_dec_pri:
         dec     eax
 	CHECKCODESIZE j_dec_pri
 
-OP_DEC_ALT:
+OP_LABEL OP_DEC_ALT
 ;nop;
         GO_ON   j_dec_alt, OP_DEC
     j_dec_alt:
         dec     edx
 	CHECKCODESIZE j_dec_alt
 
-OP_DEC:
+OP_LABEL OP_DEC
 ;nop;
         putval  j_dec+2
         GO_ON   j_dec, OP_DEC_S, 8
@@ -1657,7 +1752,7 @@ OP_DEC:
         dec     dword [edi+12345678h]
 	CHECKCODESIZE j_dec
 
-OP_DEC_S:
+OP_LABEL OP_DEC_S
 ;nop;
         putval  j_dec_s+2
         GO_ON   j_dec_s, OP_DEC_I, 8
@@ -1665,14 +1760,14 @@ OP_DEC_S:
         dec     dword [ebx+12345678h]
 	CHECKCODESIZE j_dec_s
 
-OP_DEC_I:
+OP_LABEL OP_DEC_I
 ;nop;
         GO_ON   j_dec_i, OP_MOVS
     j_dec_i:
         dec     dword [edi+eax]
 	CHECKCODESIZE j_dec_i
 
-OP_MOVS:
+OP_LABEL OP_MOVS
 ;nop;
         putval  j_movs+2
         GO_ON   j_movs, OP_CMPS, 8
@@ -1683,7 +1778,7 @@ OP_MOVS:
         pop		ecx
 	CHECKCODESIZE j_movs
 
-OP_CMPS:
+OP_LABEL OP_CMPS
 ;nop;
         putval  j_cmps+2
         GO_ON   j_cmps, OP_FILL, 8
@@ -1694,7 +1789,7 @@ OP_CMPS:
         pop		ecx
 	CHECKCODESIZE j_cmps
 
-OP_FILL:
+OP_LABEL OP_FILL
 ;nop;
         putval  j_fill+2
         GO_ON   j_fill, OP_HALT, 8
@@ -1706,7 +1801,7 @@ OP_FILL:
 	CHECKCODESIZE j_fill
 
 ;good
-OP_HALT:
+OP_LABEL OP_HALT
 ;nop;
         putval  j_halt_sm+1
         GO_ON   j_halt, OP_BOUNDS, 8
@@ -1722,7 +1817,7 @@ OP_HALT:
 	CHECKCODESIZE j_halt
 
 ;good
-OP_BOUNDS:
+OP_LABEL OP_BOUNDS
 ;nop;
         putval  j_bounds+1
         GO_ON   j_bounds, OP_SYSREQ_C, 8
@@ -1732,7 +1827,7 @@ OP_BOUNDS:
 	CHECKCODESIZE j_bounds
 
 ;good
-OP_SYSREQ_C:
+OP_LABEL OP_SYSREQ_C
 ;nop;
         putval  j_sysreq_c+1
         GO_ON   j_sysreq_c, OP_SYSREQ_PRI, 8
@@ -1744,46 +1839,50 @@ OP_SYSREQ_C:
         ; GWMV: oh well, it may look stupid, but I don't want to miss anything
         CHECKCODESIZE j_sysreq
 
-OP_SYSREQ_PRI:
+OP_LABEL OP_SYSREQ_PRI
 ;nop;
         GO_ON   j_sysreq, OP_SYSREQ_PRI
 
-OP_FILE:                                ;opcode is simply ignored
+OP_LABEL OP_FILE                                ;opcode is simply ignored
 ;nop;
         mov     eax,[ebx+4]             ;get size
         mov     [ebx],edi
         lea     ebx,[ebx+eax+8]         ;move on to next opcode
-        cmp     ebx,dword [end_code]
+        DATA_ADDR end_code
+        cmp     ebx,dword [ebp]
         jae     code_gen_done
         jmp     dword [ebx]         ;go on with the next opcode
 
-OP_LINE:
+OP_LABEL OP_LINE
 ;nop;
         mov     [ebx],edi               ; no line number support: ignore opcode
         add     ebx,12                  ; move on to next opcode
-        cmp     ebx,[end_code]
+        DATA_ADDR end_code
+        cmp     ebx,[ebp]
         jae     code_gen_done
         jmp     dword [ebx]         ; go on with the next opcode
 
-OP_SYMBOL:                              ;ignored
+OP_LABEL OP_SYMBOL                              ;ignored
         mov     [ebx],edi
         mov     eax,[ebx+4]             ; get size
         lea     ebx,[ebx+eax+8]         ; move on to next opcode
-        cmp     ebx,[end_code]
+        DATA_ADDR end_code
+        cmp     ebx,[ebp]
         jae     code_gen_done
         jmp     dword [ebx]         ; go on with the next opcode
 
 
-OP_SRANGE:                              ;ignored
+OP_LABEL OP_SRANGE                              ;ignored
         mov     [ebx],edi               ; store relocated address
         add     ebx,12                  ; move on to next opcode
-        cmp     ebx,[end_code]
+        DATA_ADDR end_code
+        cmp     ebx,[ebp]
         jae     code_gen_done
         jmp     dword [ebx]         ; go on with the next opcode
 
 
 ;not tested
-OP_JUMP_PRI:
+OP_LABEL OP_JUMP_PRI
         GO_ON   j_jump_pri, OP_SWITCH
 
     j_jump_pri:                 ; MP: This opcode makes sense only in con-
@@ -1793,7 +1892,7 @@ OP_JUMP_PRI:
 
 
 ;good
-OP_SWITCH:
+OP_LABEL OP_SWITCH
         lea     eax,[edi+6]     ; The case table will be copied directly
         neg     eax             ; after the run-time call to [jit_switch].
         and     eax,3           ; We should align this table on a DWORD
@@ -1801,7 +1900,10 @@ OP_SWITCH:
         mov     al,90h          ; 90h = opcode of x86 NOP instruction
         rep  stosb              ; Write the right number of NOPs.
         mov     [ebx],edi       ; store address of SWITCH for relocation step
-        mov     esi, j_switch
+        call    .get_switch_pc
+.get_switch_pc:
+        pop     esi
+        lea     esi,[esi + j_switch - .get_switch_pc]
         mov     ecx,6
         rep  movsb              ; copy the call instruction
         mov     esi,[ebx+4]     ; get address of CASETBL instruction
@@ -1809,7 +1911,8 @@ OP_SWITCH:
         add     esi,4           ; point esi to first entry: (count, default adr)
         mov     ecx,[esi]       ; get number of cases (excluding default)
         inc     ecx
-        mov     ebp,[reloc_num]
+        DATA_ADDR reloc_num
+        mov     ebp,[ebp]
     j_case_loop:
         mov     eax,[esi]       ; get case value
         stosd                   ; write it
@@ -1825,21 +1928,24 @@ OP_SWITCH:
         stosd                   ; write dest. adr.
         dec     ecx
         jnz     j_case_loop
-        mov     dword [reloc_num],ebp       ; write back updated reloc_num
+        mov     eax,ebp
+        DATA_ADDR reloc_num
+        mov     dword [ebp],eax             ; write back updated reloc_num
 
         jmp     [ebx]           ; GO_ON to next op-code
 
+section .data
     j_switch:
         call    [jit_switch]
 
 ;good
-OP_CASETBL:                     ; compiles to nothing, SWITCH does all the work
+OP_LABEL OP_CASETBL                     ; compiles to nothing, SWITCH does all the work
         mov     eax,[ebx+4]     ; get count of cases
         lea     ebx,[ebx+8*eax+(8+4)]   ; adjust instruction pointer
         jmp     [ebx]           ; GO_ON with next op-code
 
 
-OP_SWAP_PRI:                    ; TR
+OP_LABEL OP_SWAP_PRI                    ; TR
         GO_ON   j_swap_pri, OP_SWAP_ALT
 
         j_swap_pri:
@@ -1849,7 +1955,7 @@ OP_SWAP_PRI:                    ; TR
 	CHECKCODESIZE j_swap_pri
 
 
-OP_SWAP_ALT:                    ; TR
+OP_LABEL OP_SWAP_ALT                    ; TR
         GO_ON   j_swap_alt, OP_PUSHADDR
 
         j_swap_alt:
@@ -1859,7 +1965,7 @@ OP_SWAP_ALT:                    ; TR
 	CHECKCODESIZE j_swap_alt
 
 
-OP_PUSHADDR:                    ; TR
+OP_LABEL OP_PUSHADDR                    ; TR
         putval  j_pushaddr+1
         GO_ON   j_pushaddr, OP_NOP, 8
 
@@ -1870,13 +1976,13 @@ OP_PUSHADDR:                    ; TR
 	CHECKCODESIZE j_pushaddr
 
 
-OP_NOP:                         ; TR
+OP_LABEL OP_NOP                         ; TR
         GO_ON   j_nop, OP_SYSREQ_D
      j_nop:                     ; code alignment is ignored by the JIT
 	CHECKCODESIZE j_nop
 
 
-OP_SYSREQ_D:
+OP_LABEL OP_SYSREQ_D
 ;nop;
         putval  j_sysreq_d+1
         GO_ON   j_sysreq_d, OP_SYMTAG, 8
@@ -1886,19 +1992,21 @@ OP_SYSREQ_D:
 	CHECKCODESIZE j_sysreq_d
 
 
-OP_SYMTAG:                              ;ignored (TR)
+OP_LABEL OP_SYMTAG                              ;ignored (TR)
         mov     [ebx],edi               ; store relocated address
         add     ebx,8                   ; move on to next opcode
-        cmp     ebx,[end_code]
+        DATA_ADDR end_code
+        cmp     ebx,[ebp]
         jae     code_gen_done
         jmp     dword [ebx]         ; go on with the next opcode
 
 
-OP_BREAK:
+OP_LABEL OP_BREAK
 %ifndef DEBUGSUPPORT
         mov     [ebx],edi               ; no line number support: ignore opcode
         add     ebx,4                   ; move on to next opcode
-        cmp     ebx,[end_code]
+        DATA_ADDR end_code
+        cmp     ebx,[ebp]
         jae     code_gen_done
         jmp     DWORD [ebx]             ; go on with the next opcode
 %else
@@ -1911,7 +2019,7 @@ OP_BREAK:
     CHECKCODESIZE j_break
 %endif
 
-OP_FLOAT_MUL:
+OP_LABEL OP_FLOAT_MUL
 		GO_ON	j_float_mul, OP_FLOAT_DIV
 	j_float_mul:
 		fld     dword [esi+4]
@@ -1921,7 +2029,7 @@ OP_FLOAT_MUL:
 		pop     eax
 	CHECKCODESIZE j_float_mul
 	
-OP_FLOAT_DIV:
+OP_LABEL OP_FLOAT_DIV
 		GO_ON	j_float_div, OP_FLOAT_ADD
 	j_float_div:
 		fld     dword [esi+4]
@@ -1931,7 +2039,7 @@ OP_FLOAT_DIV:
 		pop     eax
 	CHECKCODESIZE j_float_div
 	
-OP_FLOAT_ADD:
+OP_LABEL OP_FLOAT_ADD
 		GO_ON	j_float_add, OP_FLOAT_SUB
 	j_float_add:
 		fld     dword [esi+4]
@@ -1941,7 +2049,7 @@ OP_FLOAT_ADD:
 		pop     eax
 	CHECKCODESIZE j_float_add
 	
-OP_FLOAT_SUB:
+OP_LABEL OP_FLOAT_SUB
 		GO_ON	j_float_sub, OP_FLOAT_TO
 	j_float_sub:
 		fld     dword [esi+4]
@@ -1951,7 +2059,7 @@ OP_FLOAT_SUB:
 		pop     eax
 	CHECKCODESIZE j_float_sub
 	
-OP_FLOAT_TO:
+OP_LABEL OP_FLOAT_TO
 		GO_ON   j_float_to, OP_FLOAT_ROUND
 	j_float_to:
 		fild    dword [esi+4]
@@ -1960,7 +2068,7 @@ OP_FLOAT_TO:
 		pop     eax
 	CHECKCODESIZE j_float_to
 	
-OP_FLOAT_ROUND:
+OP_LABEL OP_FLOAT_ROUND
 		GO_ON   j_float_round, OP_FLOAT_CMP
 	j_float_round:
 		;get the float control word
@@ -2005,7 +2113,7 @@ OP_FLOAT_ROUND:
 		pop      ebp
 	CHECKCODESIZE j_float_round
 	
-OP_FLOAT_CMP:
+OP_LABEL OP_FLOAT_CMP
 		GO_ON	j_float_cmp, OP_INVALID
 	j_float_cmp:
 		fld     dword [esi+8]
@@ -2019,7 +2127,7 @@ OP_FLOAT_CMP:
 		cmovb   eax, [g_flagsjit+0]
 	CHECKCODESIZE j_float_cmp
 
-OP_INVALID:                     ; break from the compiler with an error code
+OP_LABEL OP_INVALID                     ; break from the compiler with an error code
         mov     eax,AMX_ERR_INVINSTR
         pop     esi
         pop     edi

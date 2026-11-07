@@ -86,7 +86,7 @@ public:
 		const char *auth = GETPLAYERAUTHID(pEdict);
 		return auth && !strcmp(auth, "BOT");
 	}
-
+		
 	inline bool IsAlive()
 	{
 		return ((pEdict->v.deadflag == DEAD_NO) && (pEdict->v.health > 0));

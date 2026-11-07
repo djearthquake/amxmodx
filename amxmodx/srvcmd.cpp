@@ -7,9 +7,9 @@
 // Additional exceptions apply. For full license details, see LICENSE.txt or visit:
 //     https://alliedmods.net/amxmodx-license
 
+#include <string>
 #include "amxmodx.h"
 #include <amxmodx_version.h>
-#include <string>
 
 void amx_command()
 {
@@ -208,14 +208,14 @@ void amx_command()
 	else if (!strcmp(cmd, "version"))
 	{
 		print_srvconsole("%s %s (%s)\n", Plugin_info.name, Plugin_info.version, Plugin_info.url);
-		print_srvconsole("Authors:\n\tDavid \"BAILOPAN\" Anderson, Pavol \"PM OnoTo\" Marko\n");
+		print_srvconsole("Authors:\n\tDavid \"BAILOPAN\" Anderson, SPiNX \"DJ\" EarthQuake, Pavol \"PM OnoTo\" Marko\n");
 		print_srvconsole("\tFelix \"SniperBeamer\" Geyer, Jonny \"Got His Gun\" Bergstrom\n");
 		print_srvconsole("\tLukasz \"SidLuke\" Wlasinski, Christian \"Basic-Master\" Hammacher\n");
 		print_srvconsole("\tBorja \"faluco\" Ferrer, Scott \"DS\" Ehlert\n");
 		print_srvconsole("Compiled: %s\n", AMXX_BUILD_TIME);
 #if defined(AMXX_GENERATED_BUILD)
 		print_srvconsole("Built from: https://github.com/alliedmodders/amxmodx/commit/%s\n", AMXX_SHA);
-		print_srvconsole("Build ID: %s:%s\n", AMXX_LOCAL_REV, AMXX_SHA);
+		print_srvconsole("Build ID: %s:%s-SPINX\n", AMXX_LOCAL_REV, AMXX_SHA);
 #endif
 #if defined JIT && !defined ASM32
 		print_srvconsole("Core mode: JIT Only\n");

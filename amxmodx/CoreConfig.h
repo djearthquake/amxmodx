@@ -34,6 +34,7 @@ class CoreConfig
 		void CheckLegacyBufferedCommand(char *command);
 		void SetMapConfigTimer(float time);
 
+
 	private:
 
 		bool  m_ConfigsExecuted;          // Whether all configs have been executed

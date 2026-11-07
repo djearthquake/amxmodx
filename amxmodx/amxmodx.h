@@ -115,7 +115,7 @@ extern AMX_NATIVE_INFO g_GameConfigNatives[];
 
 #define MAX_BUFFER_LENGTH 16384
 
-char* UTIL_SplitHudMessage(register const char *src);
+char* UTIL_SplitHudMessage(const char *src);
 int UTIL_ReadFlags(const char* c);
 
 void UTIL_ClientPrint(edict_t *pEntity, int msg_dest, char *msg);
@@ -199,6 +199,7 @@ extern cvar_t* amxmodx_version;
 extern cvar_t* amxmodx_debug;
 extern cvar_t* amxmodx_language;
 extern cvar_t* amxmodx_perflog;
+extern cvar_t* amxmodx_lambda;
 extern cvar_t* hostname;
 extern cvar_t* mp_timelimit;
 extern fakecmd_t g_fakecmd;
@@ -292,7 +293,7 @@ extern "C" size_t get_amxstring_r(AMX *amx, cell amx_addr, char *destination, in
 int amxstring_len(cell* cstr);
 int load_amxscript(AMX* amx, void** program, const char* path, char error[64], int debug);
 int load_amxscript_ex(AMX* amx, void** program, const char* path, char *error, size_t maxLength, int debug);
-int set_amxnatives(AMX* amx, char error[64]);
+int set_amxnatives(AMX* amx, char *error);
 int set_amxstring(AMX *amx, cell amx_addr, const char *source, int max);
 int set_amxstring_simple(cell *dest, const char *source, int max);
 template <typename T> int set_amxstring_utf8(AMX *amx, cell amx_addr, const T *source, size_t sourcelen, size_t maxlen);

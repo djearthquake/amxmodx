@@ -3,10 +3,45 @@ import os.path
 
 binary = AMXX.MetaModule(builder, 'regex')
 
-if builder.target_platform == 'linux':
-  binary.compiler.postlink += [binary.Dep('lib_linux/libpcre.a')]
-elif builder.target_platform == 'mac':
-  binary.compiler.postlink += [binary.Dep('lib_darwin/libpcre.a')]
+if builder.target_platform in ('linux', 'mac'):
+  pcre_path = os.path.join(builder.currentSourcePath, '..', '..', 'tools', 'pcre')
+  binary.compiler.includes += [builder.currentSourcePath, pcre_path]
+  binary.compiler.defines += [
+    'SUPPORT_UTF',
+    'SUPPORT_UCP',
+    'SUPPORT_JIT',
+    'LINK_SIZE=2',
+    'MATCH_LIMIT=10000000',
+    'MATCH_LIMIT_RECURSION=10000000',
+    'NEWLINE=10',
+    'PARENS_NEST_LIMIT=250',
+    'MAX_NAME_COUNT=10000',
+    'MAX_NAME_SIZE=32',
+    'POSIX_MALLOC_THRESHOLD=10',
+  ]
+  pcre_sources = [
+    '../../tools/pcre/pcre_byte_order.c',
+    'pcre_chartables.c',
+    '../../tools/pcre/pcre_compile.c',
+    '../../tools/pcre/pcre_config.c',
+    '../../tools/pcre/pcre_dfa_exec.c',
+    '../../tools/pcre/pcre_exec.c',
+    '../../tools/pcre/pcre_fullinfo.c',
+    '../../tools/pcre/pcre_get.c',
+    '../../tools/pcre/pcre_globals.c',
+    '../../tools/pcre/pcre_jit_compile.c',
+    '../../tools/pcre/pcre_maketables.c',
+    '../../tools/pcre/pcre_newline.c',
+    '../../tools/pcre/pcre_ord2utf8.c',
+    '../../tools/pcre/pcre_refcount.c',
+    '../../tools/pcre/pcre_string_utils.c',
+    '../../tools/pcre/pcre_study.c',
+    '../../tools/pcre/pcre_tables.c',
+    '../../tools/pcre/pcre_ucd.c',
+    '../../tools/pcre/pcre_valid_utf8.c',
+    '../../tools/pcre/pcre_version.c',
+    '../../tools/pcre/pcre_xclass.c',
+  ]
 elif builder.target_platform == 'windows':
   binary.compiler.postlink += [binary.Dep('lib_win\\pcre.lib')]
 
@@ -21,6 +56,9 @@ binary.sources = [
   'CRegEx.cpp',
   'utils.cpp',
 ]
+
+if builder.target_platform in ('linux', 'mac'):
+  binary.sources += pcre_sources
 
 if builder.target_platform == 'windows':
   binary.sources += ['version.rc']

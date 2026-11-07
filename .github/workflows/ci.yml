@@ -79,7 +79,7 @@ jobs:
         shell: cmd
         run: |
           mkdir %DEPENDENCIES_ROOT_WIN%\nasm
-          curl -L -o "%DEPENDENCIES_ROOT_WIN%\nasm\nasm.zip" https://www.nasm.us/pub/nasm/releasebuilds/2.13.03/win32/nasm-2.13.03-win32.zip
+          curl -L -o "%DEPENDENCIES_ROOT_WIN%\nasm\nasm.zip" https://www.nasm.us/pub/nasm/releasebuilds/3.02/win32/nasm-3.02-win32.zip
           chdir %DEPENDENCIES_ROOT_WIN%\nasm
           7z x nasm.zip
           

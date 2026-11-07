@@ -13,27 +13,11 @@
 ;     Thanks to T(+)rget for pushing to implement this
 ;
 
-;;Initializes the global variable
-
 section .text
 
-global amxx_DynaInit, _amxx_DynaInit
-;void amxx_DynaInit(void *ptr);
-amxx_DynaInit:
-_amxx_DynaInit:
-	push	ebp
-	mov		ebp, esp
-	
-	mov		eax, [ebp+8]		;get pointer
-	mov		[GLOBAL_GATE], eax	;store
-	
-	mov		eax, 1
-	pop		ebp
-	ret
-	
 ;;Assembles the gateway function
 global amxx_DynaMake, _amxx_DynaMake
-;int amxx_DynaMake(char *buffer, int id);
+;int amxx_DynaMake(char *buffer, int id, void *callback);
 amxx_DynaMake:
 _amxx_DynaMake:
 	push	ebp
@@ -43,7 +27,10 @@ _amxx_DynaMake:
 	push	esi
 	
 	mov		edi, [ebp+8]	;buffer
-	mov		esi, _amxx_DynaFuncStart
+	call	.get_pc
+.get_pc:
+	pop		esi
+	add		esi, _amxx_DynaFuncStart - .get_pc
 	mov		ecx, _amxx_DynaFuncEnd - _amxx_DynaFuncStart
 	cld		;clear direction flag (just in case)
 	rep		movsb
@@ -52,6 +39,11 @@ _amxx_DynaMake:
 	;align us to mov eax, 1234 - on x86 this is 4 bytes
 	add		edi, (_amxx_DynaMoveOffset-_amxx_DynaFuncStart) + 1
 	mov		eax, [ebp+12]
+	mov		[edi], eax
+
+	mov		edi, [ebp+8]
+	add		edi, (_amxx_DynaCallbackOffset-_amxx_DynaFuncStart) + 1
+	mov		eax, [ebp+16]
 	mov		[edi], eax
 	
 	pop		esi
@@ -78,7 +70,9 @@ _amxx_DynaMoveOffset:
 	push	dword [ebp+12]		;push params
 	push	dword [ebp+8]		;push amx
 	push	eax					;push the id
-	call	[GLOBAL_GATE]		;pass through teh global gateway.
+_amxx_DynaCallbackOffset:
+	mov		eax, 12345678h		;callback address patched into the generated stub.
+	call	eax
 	add		esp, 12				;reset stack oops
 	
 	pop		ebp
@@ -100,5 +94,3 @@ _amxx_DynaCodesize:
 	ret
 	
 section .data
-	
-GLOBAL_GATE		DD		0
